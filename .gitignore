@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+.streamlit/secrets.toml
+data/*.sqlite*
+data/*.db
+data/*.csv
+!data/sample_hk_universe.csv
+outputs/
+dist/
