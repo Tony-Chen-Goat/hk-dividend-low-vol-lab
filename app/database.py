@@ -115,10 +115,15 @@ def upsert_rows(conn: sqlite3.Connection, table: str, rows: Iterable[Mapping]) -
 
 
 def _sql_value(value):
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    if value is None:
         return None
     if isinstance(value, (dict, list, tuple)):
         return json.dumps(value, ensure_ascii=False)
+    try:
+        if bool(pd.isna(value)):
+            return None
+    except (TypeError, ValueError):
+        pass
     if isinstance(value, pd.Timestamp):
         return value.isoformat()
     if hasattr(value, "item"):

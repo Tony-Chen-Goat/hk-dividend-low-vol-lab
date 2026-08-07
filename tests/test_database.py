@@ -18,6 +18,23 @@ def test_sqlite_upsert_deduplicates(tmp_path):
     assert frame.iloc[0]["close"] == 301
 
 
+def test_sqlite_upsert_converts_pandas_nat_to_null(tmp_path):
+    path = tmp_path / "test.sqlite3"
+    initialize_database(path)
+    row = {
+        "symbol": "0700.HK",
+        "effective_date": pd.Timestamp("2026-06-08"),
+        "end_date": pd.NaT,
+        "source": "test",
+    }
+    with connect(path) as conn:
+        upsert_rows(conn, "security_master", [row])
+
+    frame = read_table("security_master", path)
+    assert frame.iloc[0]["effective_date"].startswith("2026-06-08")
+    assert pd.isna(frame.iloc[0]["end_date"])
+
+
 def test_experiment_save_and_update(tmp_path):
     path = tmp_path / "test.sqlite3"
     experiment_id = save_experiment({"experiment_id": "BASE", "name": "BASELINE", "metrics": {"rank_icir": 0.5}, "score": 0.4}, path)
