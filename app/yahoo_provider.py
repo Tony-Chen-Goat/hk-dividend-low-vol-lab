@@ -147,12 +147,15 @@ def fetch_yahoo_data(
                         splits["action_type"] = "stock_split"
                         splits["source"] = "Yahoo Finance via yfinance"
                         corporate_actions.append(splits)
-                info = retry_call(lambda: ticker.get_info(), attempts=attempts)
+                try:
+                    info = retry_call(lambda: ticker.get_info(), attempts=attempts) or {}
+                except Exception:
+                    info = {}
+                if not isinstance(info, dict):
+                    info = {}
                 securities.append({
                     "symbol": symbol, "raw_symbol": raw, "name": info.get("longName") or info.get("shortName"),
-                    "sector": info.get("sector"), "listing_date": None, "security_type": "Common Stock",
-                    "board": "Main Board", "index_membership": None, "effective_date": None,
-                    "end_date": None, "source": "Yahoo Finance via yfinance",
+                    "sector": info.get("sector"), "listing_date": None,
                 })
             except Exception as exc:
                 failures.append(FetchFailure(symbol, str(exc)))

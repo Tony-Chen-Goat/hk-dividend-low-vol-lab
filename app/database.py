@@ -102,13 +102,24 @@ def transaction(path: str | Path = DEFAULT_DB_PATH) -> Iterator[sqlite3.Connecti
         conn.close()
 
 
-def upsert_rows(conn: sqlite3.Connection, table: str, rows: Iterable[Mapping]) -> int:
+def upsert_rows(
+    conn: sqlite3.Connection,
+    table: str,
+    rows: Iterable[Mapping],
+    *,
+    preserve_existing_on_null: bool = False,
+) -> int:
     rows = list(rows)
     if not rows:
         return 0
     columns = list(rows[0].keys())
     placeholders = ",".join("?" for _ in columns)
-    assignments = ",".join(f"{column}=excluded.{column}" for column in columns)
+    if preserve_existing_on_null:
+        assignments = ",".join(
+            f"{column}=COALESCE(excluded.{column},{column})" for column in columns
+        )
+    else:
+        assignments = ",".join(f"{column}=excluded.{column}" for column in columns)
     sql = f"INSERT INTO {table} ({','.join(columns)}) VALUES ({placeholders}) ON CONFLICT DO UPDATE SET {assignments}"
     conn.executemany(sql, [[_sql_value(row.get(column)) for column in columns] for row in rows])
     return len(rows)

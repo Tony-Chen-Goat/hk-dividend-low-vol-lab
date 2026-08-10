@@ -67,7 +67,12 @@ if st.button("开始更新 Yahoo 数据", type="primary"):
                 upsert_rows(conn, "daily_prices", result.prices.to_dict("records"))
                 upsert_rows(conn, "dividends", result.dividends.to_dict("records"))
                 upsert_rows(conn, "corporate_actions", result.corporate_actions.to_dict("records"))
-                upsert_rows(conn, "security_master", result.securities.to_dict("records"))
+                upsert_rows(
+                    conn,
+                    "security_master",
+                    result.securities.to_dict("records"),
+                    preserve_existing_on_null=True,
+                )
                 upsert_rows(conn, "update_logs", [{
                     "started_at": pd.Timestamp.now().isoformat(), "finished_at": pd.Timestamp.now().isoformat(),
                     "requested_count": len(symbols), "success_count": result.prices["symbol"].nunique() if not result.prices.empty else 0,

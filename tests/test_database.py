@@ -35,6 +35,30 @@ def test_sqlite_upsert_converts_pandas_nat_to_null(tmp_path):
     assert pd.isna(frame.iloc[0]["end_date"])
 
 
+def test_sqlite_upsert_can_preserve_existing_values_on_null(tmp_path):
+    path = tmp_path / "test.sqlite3"
+    initialize_database(path)
+    original = {
+        "symbol": "0700.HK",
+        "name": "Tencent Holdings",
+        "sector": "Information Technology",
+        "index_membership": "HSI|HSCEI",
+    }
+    with connect(path) as conn:
+        upsert_rows(conn, "security_master", [original])
+        upsert_rows(
+            conn,
+            "security_master",
+            [{"symbol": "0700.HK", "name": None, "sector": None}],
+            preserve_existing_on_null=True,
+        )
+
+    frame = read_table("security_master", path)
+    assert frame.iloc[0]["name"] == "Tencent Holdings"
+    assert frame.iloc[0]["sector"] == "Information Technology"
+    assert frame.iloc[0]["index_membership"] == "HSI|HSCEI"
+
+
 def test_experiment_save_and_update(tmp_path):
     path = tmp_path / "test.sqlite3"
     experiment_id = save_experiment({"experiment_id": "BASE", "name": "BASELINE", "metrics": {"rank_icir": 0.5}, "score": 0.4}, path)
