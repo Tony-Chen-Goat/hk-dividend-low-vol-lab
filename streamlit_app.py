@@ -15,7 +15,7 @@ experiments = list_experiments(DEFAULT_DB_PATH)
 features = read_table("monthly_features", DEFAULT_DB_PATH)
 
 st.markdown("#### 以时间序列纪律为核心的港股红利低波研究工作台")
-st.write("按月末构建可用证券池，计算红利、低波、质量、流动性与规模因子，并使用下一月收益进行 Rank IC 与组合验证。Yahoo 基础10因子、完整13因子和文章方案一基准在全站保持独立。")
+st.write("按月末构建可用证券池，计算红利、低波、质量、流动性与规模因子，并使用下一月收益进行 Rank IC 与组合验证。Yahoo 基础10因子、完整13因子和文章方案一基准在全站保持独立；最后可将风险合格池与因子精选池取交集并进行人工复核。")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("证券池", f"{counts['security_master']:,}")

@@ -8,6 +8,7 @@ import streamlit as st
 
 from app.config import BENCHMARKS, DEFAULT_DB_PATH
 from app.database import connect, export_table_csv, initialize_database, read_table, restore_database, table_counts, upsert_rows
+from app.display import localized_frame
 from app.ui import cloud_storage_notice, setup_page, yahoo_notice
 from app.universe import validate_universe_csv
 from app.yahoo_provider import fetch_benchmark_prices, fetch_yahoo_data
@@ -39,7 +40,7 @@ if universe_file and st.button("校验并写入证券池", type="primary"):
             upsert_rows(conn, "security_master", rows)
         st.success(f"写入 {len(rows)} 只证券；无效 {len(invalid)} 只。")
         if not invalid.empty:
-            st.dataframe(invalid[["raw_symbol", "symbol_error"]], use_container_width=True)
+            st.dataframe(localized_frame(invalid[["raw_symbol", "symbol_error"]]), use_container_width=True)
     except Exception as exc:
         st.error(str(exc))
 
@@ -82,7 +83,7 @@ if st.button("开始更新 Yahoo 数据", type="primary"):
             st.success(f"更新完成：价格 {len(result.prices):,} 行，分红 {len(result.dividends):,} 行，公司行动 {len(result.corporate_actions):,} 行。")
             if result.failures:
                 st.warning("部分股票失败，任务其余部分已保存。")
-                st.dataframe(pd.DataFrame([failure.__dict__ for failure in result.failures]), use_container_width=True)
+                st.dataframe(localized_frame(pd.DataFrame([failure.__dict__ for failure in result.failures])), use_container_width=True)
         except Exception as exc:
             st.error(f"Yahoo 更新未完成：{exc}")
 

@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from app.config import DEFAULT_DB_PATH, MODEL_FACTOR_WEIGHTS, MODEL_LABELS, RISK_DEFAULTS
+from app.display import localized_csv, localized_frame
 from app.portfolio import build_enhanced_portfolio
 from app.research_pipeline import available_feature_models, load_feature_panel
 from app.ui import empty_state, setup_page
@@ -41,6 +42,9 @@ cols[1].metric("最终入选", int((portfolio["target_weight"] > 0).sum()))
 cols[2].metric("股票权重", f"{portfolio['target_weight'].sum():.1%}")
 cols[3].metric("保留现金", f"{portfolio['cash_weight'].sum():.1%}")
 display = ["排名", "symbol", "name", "sector", "model_score", "factor_coverage", "target_weight", "constraint_note"] + [factor for factor in MODEL_FACTOR_WEIGHTS[model_name] if factor in portfolio]
-st.dataframe(portfolio[display], use_container_width=True, hide_index=True, column_config={"target_weight": st.column_config.ProgressColumn("目标权重", format="percent", min_value=0, max_value=max_stock), "factor_coverage": st.column_config.ProgressColumn("数据覆盖率", format="percent", min_value=0, max_value=1)})
-st.download_button("下载最新选股 CSV", portfolio.to_csv(index=False).encode("utf-8-sig"), f"latest_selection_{latest_month.date()}.csv")
+localized = localized_frame(portfolio[display])
+st.dataframe(localized, use_container_width=True, hide_index=True, column_config={"建议目标权重": st.column_config.ProgressColumn("建议目标权重", format="percent", min_value=0, max_value=max_stock), "因子数据覆盖率": st.column_config.ProgressColumn("因子数据覆盖率", format="percent", min_value=0, max_value=1)})
+download_cols = st.columns(2)
+download_cols[0].download_button("下载标准字段CSV", portfolio.to_csv(index=False).encode("utf-8-sig"), f"latest_selection_{latest_month.date()}.csv")
+download_cols[1].download_button("下载中文字段CSV", localized_csv(portfolio), f"latest_selection_{latest_month.date()}_cn.csv")
 st.caption("因子评分权重与资金配置权重相互独立。缺失数据不会被填成可通过筛选的默认值；约束无法满足时保留现金。")

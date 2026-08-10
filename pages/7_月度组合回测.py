@@ -3,10 +3,12 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from app.analysis import backtest_analysis
 from app.backtest import performance_metrics
 from app.charts import equity_curve_chart
 from app.config import BENCHMARKS, DEFAULT_DB_PATH, MODEL_LABELS, RISK_DEFAULTS
 from app.database import read_table
+from app.display import localized_frame
 from app.research_pipeline import available_feature_models, backtest_from_panel, load_feature_panel
 from app.ui import empty_state, setup_page
 
@@ -64,13 +66,20 @@ for column, (label, key, fmt) in zip(cols, [
     value = metrics[key]
     column.metric(label, format(value, fmt) if pd.notna(value) else "—")
 st.plotly_chart(equity_curve_chart(monthly), use_container_width=True)
+analysis = backtest_analysis(metrics, monthly, benchmark_return)
+st.markdown("#### 通俗分析与研究结论")
+st.info(f"{analysis['status']}：{analysis['summary']}")
+for detail in analysis["details"]:
+    st.write(f"- {detail}")
+st.caption("自动结论基于固定的收益、夏普、回撤和换手率分档，不代表实盘收益承诺；需结合样本外结果和幸存者偏差解读。")
+
 tab1, tab2, tab3 = st.tabs(["月度收益与回撤", "每月持仓", "行业分布"])
 with tab1:
-    st.dataframe(monthly, use_container_width=True, hide_index=True)
+    st.dataframe(localized_frame(monthly), use_container_width=True, hide_index=True)
 with tab2:
-    st.dataframe(holdings, use_container_width=True, hide_index=True)
+    st.dataframe(localized_frame(holdings), use_container_width=True, hide_index=True)
 with tab3:
     if "sector" in holdings:
         sector = holdings.groupby(["month_end", "sector"], dropna=False)["target_weight"].sum().reset_index()
-        st.dataframe(sector, use_container_width=True, hide_index=True)
+        st.dataframe(localized_frame(sector), use_container_width=True, hide_index=True)
 st.caption("文章方案一基准：月频调仓、传统日波动率筛选并按股息率加权；不使用因子总分和日频 CV 代理。Yahoo基础10因子与完整13因子结果保持独立，均不得解释为文章原始回测结果。")

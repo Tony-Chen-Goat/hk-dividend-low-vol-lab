@@ -5,7 +5,8 @@ import json
 import pandas as pd
 import streamlit as st
 
-from app.config import DEFAULT_DB_PATH, MODEL_LABELS
+from app.config import DEFAULT_DB_PATH, FACTOR_LABELS, MODEL_LABELS
+from app.display import localized_csv, localized_frame
 from app.experiment_store import import_experiments_csv, list_experiments
 from app.ui import empty_state, setup_page
 
@@ -29,8 +30,10 @@ else:
     if key in experiments:
         experiments = experiments.sort_values(key, ascending=ascending)
     st.markdown('<span class="oos-tag">只按样本外结果进行最终排名</span>', unsafe_allow_html=True)
-    st.dataframe(experiments, use_container_width=True, hide_index=True)
-    st.download_button("导出实验 CSV", experiments.to_csv(index=False).encode("utf-8-sig"), "experiments.csv")
+    st.dataframe(localized_frame(experiments), use_container_width=True, hide_index=True)
+    export_cols = st.columns(2)
+    export_cols[0].download_button("导出标准字段CSV", experiments.to_csv(index=False).encode("utf-8-sig"), "experiments.csv")
+    export_cols[1].download_button("导出中文字段CSV", localized_csv(experiments), "experiments_cn.csv")
     st.markdown("#### 两组实验对比")
     choices = experiments["experiment_id"].tolist()
     if len(choices) >= 2:
@@ -43,7 +46,8 @@ else:
         weights_b = json.loads(row_b.get("factor_weights_json") or "{}")
         comparison = pd.DataFrame({"实验 A": weights_a, "实验 B": weights_b}).fillna(0)
         comparison["差异"] = comparison["实验 B"] - comparison["实验 A"]
-        st.dataframe(comparison, use_container_width=True)
+        comparison.index = [FACTOR_LABELS.get(index, index) for index in comparison.index]
+        st.dataframe(comparison.rename_axis("因子"), use_container_width=True)
     else:
         st.info("至少保存两组实验后可比较因子权重差异。")
 

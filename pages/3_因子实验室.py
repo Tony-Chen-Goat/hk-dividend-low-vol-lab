@@ -12,6 +12,7 @@ from app.config import (
     MODEL_LABELS,
     MODEL_YAHOO_10,
 )
+from app.display import localized_frame
 from app.research_pipeline import compute_and_store_features, load_feature_panel
 from app.scoring import validate_weights
 from app.ui import empty_state, setup_page
@@ -74,7 +75,7 @@ else:
     a.metric("最新因子月", latest_month.date().isoformat())
     b.metric("有效股票", latest["model_score"].notna().sum())
     c.metric("平均覆盖率", f"{latest['factor_coverage'].mean():.1%}")
-    st.dataframe(latest.sort_values("model_score", ascending=False), use_container_width=True, hide_index=True)
+    st.dataframe(localized_frame(latest.sort_values("model_score", ascending=False)), use_container_width=True, hide_index=True)
     st.plotly_chart(factor_correlation_chart(latest, list(default_weights)), use_container_width=True)
 st.markdown("#### 公式边界")
 st.write("股息率使用已除息现金分红与未复权月末价格；价格收益与波动率使用复权价格。日频波动稳定度代理因子来自日线滚动波动率，不是参考文章的分钟级高频因子。财务数据仅在 published_date 不晚于因子月末时使用。")

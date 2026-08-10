@@ -3,8 +3,10 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from app.analysis import rank_ic_analysis
 from app.charts import rank_ic_chart
 from app.config import DEFAULT_DB_PATH, FACTOR_LABELS, MODEL_FACTOR_WEIGHTS, MODEL_LABELS
+from app.display import localized_frame
 from app.rank_ic import compare_factor_ics, ic_summary, monthly_rank_ic
 from app.research_pipeline import available_feature_models, load_feature_panel
 from app.ui import empty_state, setup_page
@@ -36,12 +38,20 @@ cols[2].metric("年化 ICIR", f"{summary['annualized_rank_icir']:.2f}" if pd.not
 cols[3].metric("IC 正值比例", f"{summary['positive_ratio']:.1%}" if pd.notna(summary["positive_ratio"]) else "—")
 cols[4].metric("最近12月 IC", f"{summary['latest_12m_rank_ic']:.3f}" if pd.notna(summary["latest_12m_rank_ic"]) else "—")
 st.plotly_chart(rank_ic_chart(monthly), use_container_width=True)
-st.dataframe(monthly, use_container_width=True, hide_index=True)
+analysis = rank_ic_analysis(summary, monthly)
+st.markdown("#### 通俗分析与研究结论")
+st.info(f"{analysis['status']}：{analysis['summary']}")
+for detail in analysis["details"]:
+    st.write(f"- {detail}")
+st.caption("结论使用固定、可复核的描述性分档，不是投资评级；仍需结合样本外测试与组合回测。")
+
+st.markdown("#### 月度明细")
+st.dataframe(localized_frame(monthly), use_container_width=True, hide_index=True)
 
 active_weights = MODEL_FACTOR_WEIGHTS[model_name]
 st.markdown(f"#### {len(active_weights)} 个子因子比较")
 score_columns = [f"{factor}__score" for factor in active_weights]
 comparison = compare_factor_ics(panel, score_columns)
 comparison["因子"] = comparison["factor"].str.replace("__score", "", regex=False).map(FACTOR_LABELS)
-st.dataframe(comparison.drop(columns="factor"), use_container_width=True, hide_index=True)
+st.dataframe(localized_frame(comparison.drop(columns="factor")), use_container_width=True, hide_index=True)
 st.caption("每个月使用当月全部有效股票计算 Spearman 相关，不限于最终入选股票；有效样本太少时跳过并保留原因。")

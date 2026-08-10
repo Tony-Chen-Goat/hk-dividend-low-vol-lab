@@ -4,6 +4,7 @@ import streamlit as st
 
 from app.config import DEFAULT_DB_PATH, MODEL_FULL_13, MODEL_LABELS, MODEL_YAHOO_10, RISK_DEFAULTS
 from app.database import read_table
+from app.display import localized_csv, localized_frame
 from app.ui import empty_state, setup_page
 from app.universe import apply_hk_risk_filters, build_risk_snapshot
 
@@ -46,11 +47,14 @@ a.metric("筛选前", len(snapshot))
 b.metric("筛选后", len(result.included))
 c.metric("被排除", len(result.excluded))
 st.markdown("#### 入选股票")
-st.dataframe(result.included, use_container_width=True, hide_index=True)
-st.download_button("下载入选股票 CSV", result.included.to_csv(index=False).encode("utf-8-sig"), "included_universe.csv")
+st.dataframe(localized_frame(result.included), use_container_width=True, hide_index=True)
+download_cols = st.columns(2)
+download_cols[0].download_button("下载标准字段CSV", result.included.to_csv(index=False).encode("utf-8-sig"), "included_universe.csv")
+download_cols[1].download_button("下载中文字段CSV", localized_csv(result.included), "included_universe_cn.csv")
 st.markdown("#### 被排除股票与具体原因")
 if result.excluded.empty:
     st.success("当前没有股票被排除。")
 else:
-    st.dataframe(result.excluded[[column for column in ["symbol", "name", "sector", "exclusion_reasons"] if column in result.excluded]], use_container_width=True, hide_index=True)
+    excluded_display = result.excluded[[column for column in ["symbol", "name", "sector", "exclusion_reasons"] if column in result.excluded]]
+    st.dataframe(localized_frame(excluded_display), use_container_width=True, hide_index=True)
 st.caption("港股不使用 A 股 ST 制度。本页不会显示“排除 ST 股”。")
