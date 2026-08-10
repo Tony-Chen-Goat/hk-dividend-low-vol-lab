@@ -59,13 +59,63 @@ def test_sqlite_upsert_can_preserve_existing_values_on_null(tmp_path):
     assert frame.iloc[0]["index_membership"] == "HSI|HSCEI"
 
 
+def test_feature_models_can_coexist_for_same_symbol_and_month(tmp_path):
+    path = tmp_path / "test.sqlite3"
+    initialize_database(path)
+    rows = [
+        {
+            "model_name": "yahoo_10",
+            "month_end": "2026-07-31",
+            "symbol": "0700.HK",
+            "model_score": 70.0,
+        },
+        {
+            "model_name": "full_13",
+            "month_end": "2026-07-31",
+            "symbol": "0700.HK",
+            "model_score": 80.0,
+        },
+    ]
+    with connect(path) as conn:
+        upsert_rows(conn, "monthly_features", rows)
+
+    frame = read_table("monthly_features", path)
+    assert len(frame) == 2
+    assert set(frame["model_name"]) == {"yahoo_10", "full_13"}
+
+
+def test_legacy_monthly_features_are_migrated_to_full_13(tmp_path):
+    path = tmp_path / "legacy.sqlite3"
+    with connect(path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE monthly_features (
+              month_end TEXT NOT NULL, symbol TEXT NOT NULL,
+              raw_json TEXT, winsorized_json TEXT, score_json TEXT,
+              contribution_json TEXT, model_score REAL, coverage REAL,
+              quality_flag TEXT, PRIMARY KEY (month_end, symbol)
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO monthly_features (month_end, symbol, model_score) VALUES (?, ?, ?)",
+            ("2026-07-31", "0700.HK", 75.0),
+        )
+
+    initialize_database(path)
+    frame = read_table("monthly_features", path)
+    assert len(frame) == 1
+    assert frame.iloc[0]["model_name"] == "full_13"
+
+
 def test_experiment_save_and_update(tmp_path):
     path = tmp_path / "test.sqlite3"
-    experiment_id = save_experiment({"experiment_id": "BASE", "name": "BASELINE", "metrics": {"rank_icir": 0.5}, "score": 0.4}, path)
+    experiment_id = save_experiment({"experiment_id": "BASE", "name": "BASELINE", "model_name": "yahoo_10", "metrics": {"rank_icir": 0.5}, "score": 0.4}, path)
     save_experiment({"experiment_id": experiment_id, "name": "BASELINE", "metrics": {"rank_icir": 0.6}, "score": 0.5}, path)
     frame = list_experiments(path)
     assert len(frame) == 1
     assert frame.iloc[0]["rank_icir"] == 0.6
+    assert frame.iloc[0]["model_name"] == "yahoo_10"
 
 
 def test_csv_export_and_experiment_import(tmp_path):

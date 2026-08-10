@@ -19,6 +19,7 @@ def save_experiment(payload: dict, path: str | Path = DEFAULT_DB_PATH) -> str:
         "experiment_id": experiment_id,
         "name": payload.get("name", experiment_id),
         "created_at": payload.get("created_at") or datetime.now(timezone.utc).isoformat(),
+        "model_name": payload.get("model_name"),
         "universe_name": payload.get("universe_name"), "data_start": payload.get("data_start"),
         "data_end": payload.get("data_end"), "train_window": payload.get("train_window"),
         "validation_window": payload.get("validation_window"),
@@ -32,7 +33,7 @@ def save_experiment(payload: dict, path: str | Path = DEFAULT_DB_PATH) -> str:
         "quality_note": payload.get("quality_note"), "is_out_of_sample": int(bool(payload.get("is_out_of_sample", True))),
     }
     with connect(path) as conn:
-        upsert_rows(conn, "experiments", [row])
+        upsert_rows(conn, "experiments", [row], preserve_existing_on_null=True)
     return experiment_id
 
 
@@ -53,7 +54,7 @@ def import_experiments_csv(frame: pd.DataFrame, path: str | Path = DEFAULT_DB_PA
         raise ValueError(f"实验 CSV 缺少列: {', '.join(sorted(missing))}")
     initialize_database(path)
     allowed = [
-        "experiment_id", "name", "created_at", "universe_name", "data_start", "data_end", "train_window",
+        "experiment_id", "name", "created_at", "model_name", "universe_name", "data_start", "data_end", "train_window",
         "validation_window", "factor_weights_json", "group_weights_json", "portfolio_method", "selected_count",
         "max_stock_weight", "max_sector_weight", "transaction_cost", "metrics_json", "score", "coverage",
         "survivor_bias", "quality_note", "is_out_of_sample",

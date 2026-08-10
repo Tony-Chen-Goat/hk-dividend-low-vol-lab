@@ -3,6 +3,7 @@ import math
 import numpy as np
 import pandas as pd
 
+from app.config import YAHOO_FACTOR_WEIGHTS
 from app.factors import (
     adjusted_returns, annualized_volatility, cashflow_coverage, daily_volatility_cv,
     dividend_growth_3y, dividend_stability_components, downside_volatility,
@@ -85,3 +86,15 @@ def test_weight_validation_and_cross_section_scoring():
     })
     scored = score_cross_section(features, {"x": 1.0})
     assert scored["model_score"].is_monotonic_increasing
+
+
+def test_yahoo_ten_factor_mode_does_not_require_fundamental_factors():
+    features = pd.DataFrame({
+        factor: [float(index + 1), float(index + 2), float(index + 3)]
+        for index, factor in enumerate(YAHOO_FACTOR_WEIGHTS)
+        if factor != "dividend_stability"
+    })
+    features["dividend_stability"] = [30.0, 60.0, 90.0]
+    scored = score_cross_section(features, dict(YAHOO_FACTOR_WEIGHTS))
+    assert scored["model_score"].notna().all()
+    assert scored["factor_coverage"].eq(1.0).all()

@@ -4,29 +4,41 @@ import pandas as pd
 import streamlit as st
 
 from app.backtest import performance_metrics
-from app.config import DEFAULT_DB_PATH, FACTOR_GROUPS, FACTOR_WEIGHTS
+from app.config import DEFAULT_DB_PATH, MODEL_FACTOR_GROUPS, MODEL_LABELS, MODEL_YAHOO_10
 from app.experiment_store import save_experiment
-from app.optimizer import experiment_score, group_weight_candidates, sampled_weight_candidates
+from app.optimizer import experiment_score, sampled_weight_candidates
 from app.rank_ic import ic_summary, monthly_rank_ic
-from app.research_pipeline import backtest_from_panel, load_feature_panel
+from app.research_pipeline import available_feature_models, backtest_from_panel, load_feature_panel
 from app.scoring import score_cross_section
 from app.ui import empty_state, setup_page
 
 
 setup_page("参数调优", "🎛️")
-panel = load_feature_panel(DEFAULT_DB_PATH)
+available_models = available_feature_models(DEFAULT_DB_PATH)
+if not available_models:
+    empty_state("尚无因子面板，无法进行滚动样本外调优。")
+    st.stop()
+model_name = st.selectbox(
+    "因子模式",
+    available_models,
+    format_func=MODEL_LABELS.get,
+)
+panel = load_feature_panel(DEFAULT_DB_PATH, model_name)
 if panel.empty:
     empty_state("尚无因子面板，无法进行滚动样本外调优。")
     st.stop()
 
 st.markdown("#### 两层有限搜索")
-st.write("第一层在红利 30%–50%、低波 30%–50%、质量/流动性/规模 15%–30% 范围内按 5 个百分点搜索；第二层保留组内基准比例。本版本不暴力穷举 13 因子的全部组合。")
+if model_name == MODEL_YAHOO_10:
+    st.write("第一层在红利 40%–55%、低波 40%–55%、流动性 5%–15% 范围内按 5 个百分点搜索；第二层保留组内基准比例。")
+else:
+    st.write("第一层在红利 30%–50%、低波 30%–50%、质量/流动性/规模 15%–30% 范围内按 5 个百分点搜索；第二层保留组内基准比例。本版本不暴力穷举 13 因子的全部组合。")
 cols = st.columns(4)
 max_experiments = cols[0].number_input("最大实验数", 1, 200, 25)
 top_n = cols[1].slider("入选数量", 10, 50, 30)
 transaction_cost = cols[2].number_input("交易成本", 0.0, 0.02, 0.001, 0.0001, format="%.4f")
 validation_months = cols[3].number_input("验证期（月）", 6, 36, 12)
-candidates = sampled_weight_candidates(int(max_experiments))
+candidates = sampled_weight_candidates(int(max_experiments), model_name=model_name)
 st.metric("预计实验数量", len(candidates))
 if "cancel_opt" not in st.session_state:
     st.session_state.cancel_opt = False
@@ -59,10 +71,12 @@ if st.button("开始样本外参数实验", type="primary"):
                 info, icir = perf["information_ratio"], ic["rank_icir"]
             score = experiment_score(icir, info, perf["max_drawdown"], perf["average_turnover"])
             payload = {
-                "name": "BASELINE" if index == 1 else f"OOS-{index:03d}", "universe_name": "当前导入证券池",
+                "name": "BASELINE" if index == 1 else f"OOS-{index:03d}",
+                "model_name": model_name,
+                "universe_name": "当前导入证券池",
                 "data_start": str(panel["month_end"].min().date()), "data_end": str(panel["month_end"].max().date()),
                 "train_window": f"起始至验证期前（至少5年）", "validation_window": f"末{validation_months}个月",
-                "factor_weights": weights, "group_weights": {group: sum(weights[f] for f in factors) for group, factors in FACTOR_GROUPS.items()},
+                "factor_weights": weights, "group_weights": {group: sum(weights[f] for f in factors) for group, factors in MODEL_FACTOR_GROUPS[model_name].items()},
                 "portfolio_method": "blend", "selected_count": top_n, "transaction_cost": transaction_cost,
                 "metrics": {**ic, **perf}, "score": score, "coverage": float(rescored["factor_coverage"].mean()),
                 "survivor_bias": True, "quality_note": "仅使用样本外验证期评分；当前成分股回溯时存在幸存者偏差。", "is_out_of_sample": True,

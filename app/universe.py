@@ -79,7 +79,10 @@ def apply_hk_risk_filters(
             reasons.append("最近一年股息削减超限")
         if pd.isna(row.get("avg_traded_value_20d")) or row.get("avg_traded_value_20d") < cfg["min_avg_traded_value_20d"]:
             reasons.append("20日平均成交额不足")
-        if pd.isna(row.get("free_float_market_cap")) or row.get("free_float_market_cap") < cfg["min_free_float_market_cap"]:
+        if cfg.get("require_free_float_market_cap", True) and (
+            pd.isna(row.get("free_float_market_cap"))
+            or row.get("free_float_market_cap") < cfg["min_free_float_market_cap"]
+        ):
             reasons.append("自由流通市值不足或缺失")
         if bool(row.get("inactive_event_effective", False)):
             reasons.append("退市/清盘/私有化/长期停牌信息已生效")

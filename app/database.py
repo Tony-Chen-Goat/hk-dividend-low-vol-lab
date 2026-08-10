@@ -46,9 +46,9 @@ CREATE TABLE IF NOT EXISTS monthly_universe (
   exclusion_reasons TEXT, source TEXT, PRIMARY KEY (month_end, symbol)
 );
 CREATE TABLE IF NOT EXISTS monthly_features (
-  month_end TEXT NOT NULL, symbol TEXT NOT NULL, raw_json TEXT, winsorized_json TEXT,
+  model_name TEXT NOT NULL DEFAULT 'full_13', month_end TEXT NOT NULL, symbol TEXT NOT NULL, raw_json TEXT, winsorized_json TEXT,
   score_json TEXT, contribution_json TEXT, model_score REAL, coverage REAL,
-  quality_flag TEXT, PRIMARY KEY (month_end, symbol)
+  quality_flag TEXT, PRIMARY KEY (model_name, month_end, symbol)
 );
 CREATE TABLE IF NOT EXISTS forward_returns (
   month_end TEXT NOT NULL, symbol TEXT NOT NULL, next_month_end TEXT,
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS backtest_holdings (
 );
 CREATE TABLE IF NOT EXISTS experiments (
   experiment_id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL,
-  universe_name TEXT, data_start TEXT, data_end TEXT, train_window TEXT,
+  model_name TEXT, universe_name TEXT, data_start TEXT, data_end TEXT, train_window TEXT,
   validation_window TEXT, factor_weights_json TEXT, group_weights_json TEXT,
   portfolio_method TEXT, selected_count INTEGER, max_stock_weight REAL,
   max_sector_weight REAL, transaction_cost REAL, metrics_json TEXT,
@@ -87,6 +87,42 @@ def connect(path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
 def initialize_database(path: str | Path = DEFAULT_DB_PATH) -> None:
     with connect(path) as conn:
         conn.executescript(SCHEMA)
+        _migrate_schema(conn)
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    feature_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(monthly_features)").fetchall()
+    }
+    if "model_name" not in feature_columns:
+        conn.executescript(
+            """
+            ALTER TABLE monthly_features RENAME TO monthly_features_legacy;
+            CREATE TABLE monthly_features (
+              model_name TEXT NOT NULL DEFAULT 'full_13',
+              month_end TEXT NOT NULL, symbol TEXT NOT NULL,
+              raw_json TEXT, winsorized_json TEXT, score_json TEXT,
+              contribution_json TEXT, model_score REAL, coverage REAL,
+              quality_flag TEXT,
+              PRIMARY KEY (model_name, month_end, symbol)
+            );
+            INSERT INTO monthly_features (
+              model_name, month_end, symbol, raw_json, winsorized_json,
+              score_json, contribution_json, model_score, coverage, quality_flag
+            )
+            SELECT
+              'full_13', month_end, symbol, raw_json, winsorized_json,
+              score_json, contribution_json, model_score, coverage, quality_flag
+            FROM monthly_features_legacy;
+            DROP TABLE monthly_features_legacy;
+            """
+        )
+
+    experiment_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(experiments)").fetchall()
+    }
+    if "model_name" not in experiment_columns:
+        conn.execute("ALTER TABLE experiments ADD COLUMN model_name TEXT")
 
 
 @contextmanager

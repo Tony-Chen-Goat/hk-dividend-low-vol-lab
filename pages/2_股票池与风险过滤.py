@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from app.config import DEFAULT_DB_PATH, RISK_DEFAULTS
+from app.config import DEFAULT_DB_PATH, MODEL_FULL_13, MODEL_LABELS, MODEL_YAHOO_10, RISK_DEFAULTS
 from app.database import read_table
 from app.ui import empty_state, setup_page
 from app.universe import apply_hk_risk_filters, build_risk_snapshot
@@ -17,6 +17,13 @@ if securities.empty or prices.empty:
     st.stop()
 
 st.markdown("#### 港股规则")
+model_name = st.selectbox(
+    "筛选模式",
+    list(MODEL_LABELS),
+    format_func=MODEL_LABELS.get,
+)
+if model_name == MODEL_YAHOO_10:
+    st.info("Yahoo 基础10因子模式不要求自由流通市值；仍保留主板、价格、交易活跃度、停牌和成交额规则。")
 cols = st.columns(4)
 settings = {
     "main_board_only": cols[0].toggle("只保留主板普通股", True),
@@ -30,6 +37,7 @@ settings.update({
     "max_suspension_days": cols2[1].number_input("最长连续停牌日", 0, value=RISK_DEFAULTS["max_suspension_days"]),
     "min_avg_traded_value_20d": cols2[2].number_input("最低20日平均成交额", 0.0, value=RISK_DEFAULTS["min_avg_traded_value_20d"], format="%.0f"),
     "min_free_float_market_cap": cols2[3].number_input("最低自由流通市值", 0.0, value=RISK_DEFAULTS["min_free_float_market_cap"], format="%.0f"),
+    "require_free_float_market_cap": model_name == MODEL_FULL_13,
 })
 snapshot = build_risk_snapshot(prices, securities, fundamentals)
 result = apply_hk_risk_filters(snapshot, settings)

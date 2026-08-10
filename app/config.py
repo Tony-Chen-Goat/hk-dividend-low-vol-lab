@@ -30,10 +30,49 @@ FACTOR_WEIGHTS = OrderedDict(
     ]
 )
 
+MODEL_YAHOO_10 = "yahoo_10"
+MODEL_FULL_13 = "full_13"
+
+YAHOO_FACTOR_WEIGHTS = OrderedDict(
+    [
+        ("dividend_yield_3y", 0.24),
+        ("dividend_yield_ttm", 0.12),
+        ("dividend_stability", 0.06),
+        ("dividend_growth_3y", 0.05),
+        ("volatility_60d", 0.18),
+        ("volatility_120d", 0.12),
+        ("downside_volatility_60d", 0.08),
+        ("max_drawdown_120d", 0.06),
+        ("daily_volatility_cv", 0.04),
+        ("avg_traded_value_20d", 0.05),
+    ]
+)
+
+MODEL_LABELS = OrderedDict(
+    [
+        (MODEL_YAHOO_10, "Yahoo 基础10因子"),
+        (MODEL_FULL_13, "完整13因子"),
+    ]
+)
+
+MODEL_FACTOR_WEIGHTS = {
+    MODEL_YAHOO_10: YAHOO_FACTOR_WEIGHTS,
+    MODEL_FULL_13: FACTOR_WEIGHTS,
+}
+
 FACTOR_GROUPS = {
     "红利": ["dividend_yield_3y", "dividend_yield_ttm", "dividend_stability", "dividend_growth_3y"],
     "低波": ["volatility_60d", "volatility_120d", "downside_volatility_60d", "max_drawdown_120d", "daily_volatility_cv"],
     "质量/流动性/规模": ["payout_sustainability", "cashflow_coverage", "avg_traded_value_20d", "free_float_market_cap"],
+}
+
+MODEL_FACTOR_GROUPS = {
+    MODEL_YAHOO_10: {
+        "红利": ["dividend_yield_3y", "dividend_yield_ttm", "dividend_stability", "dividend_growth_3y"],
+        "低波": ["volatility_60d", "volatility_120d", "downside_volatility_60d", "max_drawdown_120d", "daily_volatility_cv"],
+        "流动性": ["avg_traded_value_20d"],
+    },
+    MODEL_FULL_13: FACTOR_GROUPS,
 }
 
 FACTOR_LABELS = {

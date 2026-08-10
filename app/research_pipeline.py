@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from .backtest import calculate_forward_returns, run_monthly_backtest
-from .config import DEFAULT_DB_PATH, FACTOR_WEIGHTS
+from .config import DEFAULT_DB_PATH, FACTOR_WEIGHTS, MODEL_FACTOR_WEIGHTS, MODEL_FULL_13
 from .database import connect, initialize_database, read_table, upsert_rows
 from .factors import calculate_monthly_features
 from .portfolio import build_article_baseline, build_enhanced_portfolio
@@ -24,7 +24,12 @@ def available_month_ends(prices: pd.DataFrame, minimum_history_days: int = 252) 
     return list(pd.Series(dates).groupby(dates.to_period("M")).max())
 
 
-def compute_and_store_features(path: str | Path = DEFAULT_DB_PATH, weights: dict[str, float] | None = None, progress=None) -> pd.DataFrame:
+def compute_and_store_features(
+    path: str | Path = DEFAULT_DB_PATH,
+    weights: dict[str, float] | None = None,
+    progress=None,
+    model_name: str = MODEL_FULL_13,
+) -> pd.DataFrame:
     initialize_database(path)
     prices = read_table("daily_prices", path)
     dividends = read_table("dividends", path)
@@ -32,6 +37,14 @@ def compute_and_store_features(path: str | Path = DEFAULT_DB_PATH, weights: dict
     securities = read_table("security_master", path)
     if prices.empty:
         return pd.DataFrame()
+    if not securities.empty:
+        stock_symbols = set(securities["symbol"].dropna().astype(str))
+        prices = prices[prices["symbol"].isin(stock_symbols)].copy()
+        dividends = dividends[dividends["symbol"].isin(stock_symbols)].copy()
+        fundamentals = fundamentals[fundamentals["symbol"].isin(stock_symbols)].copy()
+    if prices.empty:
+        return pd.DataFrame()
+    active_weights = weights or dict(MODEL_FACTOR_WEIGHTS[model_name])
     rows, stored = [], []
     months = available_month_ends(prices)
     for index, month in enumerate(months, start=1):
@@ -40,7 +53,8 @@ def compute_and_store_features(path: str | Path = DEFAULT_DB_PATH, weights: dict
             continue
         if not securities.empty:
             raw = raw.merge(securities[["symbol", "sector"]], on="symbol", how="left")
-        scored = score_cross_section(raw, weights or dict(FACTOR_WEIGHTS))
+        scored = score_cross_section(raw, active_weights)
+        scored["model_name"] = model_name
         rows.append(scored)
         for _, row in scored.iterrows():
             raw_values = {factor: _json_value(row.get(factor)) for factor in FACTOR_WEIGHTS}
@@ -48,6 +62,7 @@ def compute_and_store_features(path: str | Path = DEFAULT_DB_PATH, weights: dict
             scores = {factor: _json_value(row.get(f"{factor}__score")) for factor in FACTOR_WEIGHTS}
             contributions = {factor: _json_value(row.get(f"{factor}__contribution")) for factor in FACTOR_WEIGHTS}
             stored.append({
+                "model_name": model_name,
                 "month_end": pd.Timestamp(month).date().isoformat(), "symbol": row["symbol"],
                 "raw_json": json.dumps(raw_values, ensure_ascii=False), "winsorized_json": json.dumps(wins, ensure_ascii=False),
                 "score_json": json.dumps(scores, ensure_ascii=False), "contribution_json": json.dumps(contributions, ensure_ascii=False),
@@ -72,15 +87,36 @@ def compute_and_store_features(path: str | Path = DEFAULT_DB_PATH, weights: dict
     return result.merge(forward, on=["symbol", "month_end"], how="left")
 
 
-def load_feature_panel(path: str | Path = DEFAULT_DB_PATH) -> pd.DataFrame:
+def available_feature_models(path: str | Path = DEFAULT_DB_PATH) -> list[str]:
+    features = read_table("monthly_features", path)
+    if features.empty or "model_name" not in features:
+        return []
+    available = set(features["model_name"].dropna().astype(str))
+    return [name for name in MODEL_FACTOR_WEIGHTS if name in available]
+
+
+def load_feature_panel(
+    path: str | Path = DEFAULT_DB_PATH,
+    model_name: str = MODEL_FULL_13,
+) -> pd.DataFrame:
     features = read_table("monthly_features", path)
     forward = read_table("forward_returns", path)
     securities = read_table("security_master", path)
     if features.empty:
         return features
+    features = features[features["model_name"] == model_name].copy()
+    if features.empty:
+        return features
     expanded = []
     for row in features.itertuples(index=False):
-        payload = {"month_end": pd.Timestamp(row.month_end), "symbol": row.symbol, "model_score": row.model_score, "factor_coverage": row.coverage, "quality_flag": row.quality_flag}
+        payload = {
+            "model_name": row.model_name,
+            "month_end": pd.Timestamp(row.month_end),
+            "symbol": row.symbol,
+            "model_score": row.model_score,
+            "factor_coverage": row.coverage,
+            "quality_flag": row.quality_flag,
+        }
         payload.update(json.loads(row.raw_json or "{}"))
         scores = json.loads(row.score_json or "{}")
         payload.update({f"{key}__score": value for key, value in scores.items()})

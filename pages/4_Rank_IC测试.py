@@ -4,14 +4,23 @@ import pandas as pd
 import streamlit as st
 
 from app.charts import rank_ic_chart
-from app.config import DEFAULT_DB_PATH, FACTOR_LABELS, FACTOR_WEIGHTS
+from app.config import DEFAULT_DB_PATH, FACTOR_LABELS, MODEL_FACTOR_WEIGHTS, MODEL_LABELS
 from app.rank_ic import compare_factor_ics, ic_summary, monthly_rank_ic
-from app.research_pipeline import load_feature_panel
+from app.research_pipeline import available_feature_models, load_feature_panel
 from app.ui import empty_state, setup_page
 
 
 setup_page("Rank IC 测试", "📐")
-panel = load_feature_panel(DEFAULT_DB_PATH)
+available_models = available_feature_models(DEFAULT_DB_PATH)
+if not available_models:
+    empty_state("尚无月度因子与下一月收益。请先在因子实验室执行计算。")
+    st.stop()
+model_name = st.selectbox(
+    "因子模式",
+    available_models,
+    format_func=MODEL_LABELS.get,
+)
+panel = load_feature_panel(DEFAULT_DB_PATH, model_name)
 if panel.empty or "forward_return" not in panel:
     empty_state("尚无月度因子与下一月收益。请先在因子实验室执行计算。")
     st.stop()
@@ -29,8 +38,9 @@ cols[4].metric("最近12月 IC", f"{summary['latest_12m_rank_ic']:.3f}" if pd.no
 st.plotly_chart(rank_ic_chart(monthly), use_container_width=True)
 st.dataframe(monthly, use_container_width=True, hide_index=True)
 
-st.markdown("#### 13 个子因子比较")
-score_columns = [f"{factor}__score" for factor in FACTOR_WEIGHTS]
+active_weights = MODEL_FACTOR_WEIGHTS[model_name]
+st.markdown(f"#### {len(active_weights)} 个子因子比较")
+score_columns = [f"{factor}__score" for factor in active_weights]
 comparison = compare_factor_ics(panel, score_columns)
 comparison["因子"] = comparison["factor"].str.replace("__score", "", regex=False).map(FACTOR_LABELS)
 st.dataframe(comparison.drop(columns="factor"), use_container_width=True, hide_index=True)

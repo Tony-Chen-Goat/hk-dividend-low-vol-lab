@@ -5,7 +5,7 @@ import json
 import pandas as pd
 import streamlit as st
 
-from app.config import DEFAULT_DB_PATH
+from app.config import DEFAULT_DB_PATH, MODEL_LABELS
 from app.experiment_store import import_experiments_csv, list_experiments
 from app.ui import empty_state, setup_page
 
@@ -15,6 +15,14 @@ experiments = list_experiments(DEFAULT_DB_PATH)
 if experiments.empty:
     empty_state("尚未保存实验。请先前往参数调优页运行样本外实验。")
 else:
+    model_options = [name for name in MODEL_LABELS if name in set(experiments["model_name"].dropna())]
+    selected_model = st.selectbox(
+        "因子模式",
+        ["all", *model_options],
+        format_func=lambda value: "全部模式" if value == "all" else MODEL_LABELS[value],
+    )
+    if selected_model != "all":
+        experiments = experiments[experiments["model_name"] == selected_model].copy()
     sort_label = st.selectbox("排序指标", ["综合得分", "Rank ICIR", "年化收益", "最大回撤", "月均换手率"])
     sort_map = {"综合得分": ("score", False), "Rank ICIR": ("rank_icir", False), "年化收益": ("annualized_return", False), "最大回撤": ("max_drawdown", True), "月均换手率": ("average_turnover", True)}
     key, ascending = sort_map[sort_label]

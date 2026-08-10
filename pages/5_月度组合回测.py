@@ -5,26 +5,35 @@ import streamlit as st
 
 from app.backtest import performance_metrics
 from app.charts import equity_curve_chart
-from app.config import BENCHMARKS, DEFAULT_DB_PATH, RISK_DEFAULTS
+from app.config import BENCHMARKS, DEFAULT_DB_PATH, MODEL_LABELS, RISK_DEFAULTS
 from app.database import read_table
-from app.research_pipeline import backtest_from_panel, load_feature_panel
+from app.research_pipeline import available_feature_models, backtest_from_panel, load_feature_panel
 from app.ui import empty_state, setup_page
 
 
 setup_page("月度组合回测", "📈")
-panel = load_feature_panel(DEFAULT_DB_PATH)
+available_models = available_feature_models(DEFAULT_DB_PATH)
+if not available_models:
+    empty_state("尚无月度因子面板。请先在因子实验室执行计算。")
+    st.stop()
+model_name = st.selectbox(
+    "因子模式",
+    available_models,
+    format_func=MODEL_LABELS.get,
+)
+panel = load_feature_panel(DEFAULT_DB_PATH, model_name)
 if panel.empty:
     empty_state("尚无月度因子面板。请先在因子实验室执行计算。")
     st.stop()
 
 controls = st.columns(5)
-mode = controls[0].selectbox("模型", ["港股13因子增强模型", "文章方案一基准"])
+mode = controls[0].selectbox("组合模型", ["因子增强模型", "文章方案一基准"])
 top_n = controls[1].slider("入选数量", 10, 50, 30)
 method_label = controls[2].selectbox("资金配置", ["50%股息率＋50%逆波动率", "股息率加权", "逆波动率加权"], disabled=mode == "文章方案一基准")
 cost = controls[3].number_input("单边交易成本", 0.0, 0.02, 0.001, 0.0001, format="%.4f")
 max_stock = controls[4].slider("单股上限", 0.01, 0.20, RISK_DEFAULTS["max_stock_weight"], 0.01)
 method_map = {"50%股息率＋50%逆波动率": "blend", "股息率加权": "dividend", "逆波动率加权": "inverse_volatility"}
-monthly, holdings = backtest_from_panel(panel, "enhanced" if mode.startswith("港股") else "article", top_n, method_map[method_label], cost, {"max_stock_weight": max_stock})
+monthly, holdings = backtest_from_panel(panel, "enhanced" if mode == "因子增强模型" else "article", top_n, method_map[method_label], cost, {"max_stock_weight": max_stock})
 if monthly.empty:
     empty_state("没有足够的下一月收益或完整因子用于回测。")
     st.stop()
@@ -64,4 +73,4 @@ with tab3:
     if "sector" in holdings:
         sector = holdings.groupby(["month_end", "sector"], dropna=False)["target_weight"].sum().reset_index()
         st.dataframe(sector, use_container_width=True, hide_index=True)
-st.caption("文章方案一基准：月频调仓、传统日波动率筛选并按股息率加权；不使用 13 因子总分和日频 CV 代理。增强模型结果不得解释为文章原始回测结果。")
+st.caption("文章方案一基准：月频调仓、传统日波动率筛选并按股息率加权；不使用因子总分和日频 CV 代理。Yahoo基础10因子与完整13因子结果保持独立，均不得解释为文章原始回测结果。")
