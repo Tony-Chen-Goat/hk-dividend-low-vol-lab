@@ -6,7 +6,11 @@ import pandas as pd
 from .config import RISK_DEFAULTS
 
 
-def raw_portfolio_weights(selected: pd.DataFrame, method: str = "blend") -> pd.Series:
+def raw_portfolio_weights(
+    selected: pd.DataFrame,
+    method: str = "blend",
+    dividend_mix: float = 0.5,
+) -> pd.Series:
     if selected.empty:
         return pd.Series(dtype=float)
     dividend = pd.to_numeric(selected["dividend_yield_ttm"], errors="coerce").clip(lower=0).fillna(0)
@@ -17,9 +21,11 @@ def raw_portfolio_weights(selected: pd.DataFrame, method: str = "blend") -> pd.S
     elif method == "inverse_volatility":
         signal = inverse_vol
     elif method == "blend":
+        if not 0 <= dividend_mix <= 1:
+            raise ValueError("股息率配置比例必须在0%到100%之间")
         div_weight = dividend / dividend.sum() if dividend.sum() > 0 else pd.Series(0, index=selected.index)
         vol_weight = inverse_vol / inverse_vol.sum() if inverse_vol.sum() > 0 else pd.Series(0, index=selected.index)
-        signal = div_weight * 0.5 + vol_weight * 0.5
+        signal = div_weight * dividend_mix + vol_weight * (1 - dividend_mix)
     else:
         raise ValueError(f"未知组合加权方式: {method}")
     if signal.sum() <= 0:
@@ -77,9 +83,19 @@ def apply_portfolio_constraints(
     return result
 
 
-def build_enhanced_portfolio(scored: pd.DataFrame, top_n: int = 30, method: str = "blend", settings: dict | None = None) -> pd.DataFrame:
+def build_enhanced_portfolio(
+    scored: pd.DataFrame,
+    top_n: int = 30,
+    method: str = "blend",
+    settings: dict | None = None,
+) -> pd.DataFrame:
     selected = scored.dropna(subset=["model_score"]).nlargest(top_n, "model_score").copy()
-    return apply_portfolio_constraints(selected, raw_portfolio_weights(selected, method), settings)
+    dividend_mix = float((settings or {}).get("dividend_mix", 0.5))
+    return apply_portfolio_constraints(
+        selected,
+        raw_portfolio_weights(selected, method, dividend_mix),
+        settings,
+    )
 
 
 def build_article_baseline(filtered: pd.DataFrame, top_n: int = 30, settings: dict | None = None) -> pd.DataFrame:

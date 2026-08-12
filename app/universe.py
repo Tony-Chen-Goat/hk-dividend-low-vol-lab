@@ -10,7 +10,7 @@ from .config import RISK_DEFAULTS, UNIVERSE_COLUMNS
 from .yahoo_provider import normalize_hk_symbol
 
 
-EXCLUDED_TYPES = {"ETF", "REIT", "SPAC", "Warrant", "CBBC", "Preferred Stock", "Structured Product"}
+EXCLUDED_TYPES = {"ETF", "REIT", "SPAC", "WARRANT", "CBBC", "PREFERRED STOCK", "STRUCTURED PRODUCT"}
 
 
 def validate_universe_csv(frame: pd.DataFrame) -> pd.DataFrame:
@@ -57,13 +57,15 @@ def apply_hk_risk_filters(
     rows = []
     for _, row in snapshot.iterrows():
         reasons: list[str] = []
-        security_type = str(row.get("security_type", ""))
+        security_type = str(row.get("security_type", "")).strip()
+        normalized_security_type = security_type.upper()
         board = str(row.get("board", ""))
         if cfg.get("main_board_only", True) and board and board.lower() not in {"main board", "main", "主板"}:
             reasons.append("非港交所主板")
         if cfg.get("exclude_gem", True) and board.upper() == "GEM":
             reasons.append("GEM")
-        if security_type in EXCLUDED_TYPES:
+        allow_reit = bool(cfg.get("allow_reit", True))
+        if normalized_security_type in EXCLUDED_TYPES and not (allow_reit and normalized_security_type == "REIT"):
             reasons.append(f"不支持的证券类型: {security_type}")
         if pd.notna(row.get("listing_days")) and row.get("listing_days") < cfg["min_listing_days"]:
             reasons.append(f"上市不足{cfg['min_listing_days']}个交易日")

@@ -130,9 +130,20 @@ def load_feature_panel(
     return panel
 
 
-def backtest_from_panel(panel: pd.DataFrame, mode: str = "enhanced", top_n: int = 30, method: str = "blend", transaction_cost: float = 0.001, settings: dict | None = None):
+def backtest_from_panel(
+    panel: pd.DataFrame,
+    mode: str = "enhanced",
+    top_n: int = 30,
+    method: str = "blend",
+    transaction_cost: float = 0.001,
+    settings: dict | None = None,
+    start_date=None,
+):
+    source = panel.copy()
+    if start_date is not None:
+        source = source[pd.to_datetime(source["month_end"]) >= pd.Timestamp(start_date)].copy()
     holdings = []
-    for month, group in panel.groupby("month_end"):
+    for month, group in source.groupby("month_end"):
         available = group.dropna(subset=["forward_return"])
         if available.empty:
             continue

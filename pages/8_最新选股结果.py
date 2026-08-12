@@ -26,13 +26,39 @@ if panel.empty:
     st.stop()
 latest_month = panel["month_end"].max()
 latest = panel[panel["month_end"] == latest_month].copy()
-controls = st.columns(4)
-top_n = controls[0].slider("入选数量", 10, 50, 30)
-method_label = controls[1].selectbox("资金配置", ["50%股息率＋50%逆波动率", "股息率加权", "逆波动率加权"])
-max_stock = controls[2].slider("单股上限", 0.01, 0.20, RISK_DEFAULTS["max_stock_weight"], 0.01)
-max_sector = controls[3].slider("单行业上限", 0.05, 0.60, RISK_DEFAULTS["max_sector_weight"], 0.05)
-method = {"50%股息率＋50%逆波动率": "blend", "股息率加权": "dividend", "逆波动率加权": "inverse_volatility"}[method_label]
-portfolio = build_enhanced_portfolio(latest, top_n, method, {"max_stock_weight": max_stock, "max_sector_weight": max_sector})
+controls = st.columns(3)
+top_n = controls[0].slider("入选数量", 3, 15, 10)
+max_stock = controls[1].slider("单股上限", 0.01, 0.20, RISK_DEFAULTS["max_stock_weight"], 0.01)
+max_sector = controls[2].slider("单行业上限", 0.05, 0.60, RISK_DEFAULTS["max_sector_weight"], 0.05)
+st.markdown("#### 资金配置")
+mix_cols = st.columns(2)
+dividend_pct = mix_cols[0].number_input("股息率配置比例（%）", 0, 100, 50, 5)
+inverse_vol_pct = mix_cols[1].number_input("逆波动率配置比例（%）", 0, 100, 50, 5)
+if dividend_pct + inverse_vol_pct != 100:
+    st.error(f"两项资金配置比例必须合计100%，当前为 {dividend_pct + inverse_vol_pct}%。")
+    st.stop()
+top5_limit = RISK_DEFAULTS["max_top5_weight"]
+maximum_invested = min(
+    1.0,
+    top_n * max_stock,
+    top5_limit if top_n <= 5 else top5_limit + (top_n - 5) * max_stock,
+)
+if maximum_invested < 1:
+    st.warning(
+        f"按当前入选 {top_n} 只、单股上限 {max_stock:.0%}及前5大权重上限 {top5_limit:.0%}，"
+        "即使其他约束全部满足，"
+        f"股票仓位最多也只有 {maximum_invested:.0%}，至少会保留 {1 - maximum_invested:.0%} 现金。"
+    )
+portfolio = build_enhanced_portfolio(
+    latest,
+    top_n,
+    "blend",
+    {
+        "max_stock_weight": max_stock,
+        "max_sector_weight": max_sector,
+        "dividend_mix": float(dividend_pct) / 100,
+    },
+)
 portfolio = portfolio.sort_values("model_score", ascending=False).reset_index(drop=True)
 portfolio.insert(0, "排名", range(1, len(portfolio) + 1))
 st.markdown(f'<span class="oos-tag">因子月末 {latest_month.date().isoformat()}</span>', unsafe_allow_html=True)

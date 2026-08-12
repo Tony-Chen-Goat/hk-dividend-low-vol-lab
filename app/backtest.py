@@ -27,17 +27,39 @@ def run_monthly_backtest(holdings: pd.DataFrame, transaction_cost: float = 0.001
         raise ValueError(f"回测持仓缺少列: {', '.join(sorted(missing))}")
     monthly_rows, detail_rows = [], []
     previous = pd.Series(dtype=float)
+    previous_symbols: set[str] = set()
     for month, group in holdings.sort_values("month_end").groupby("month_end"):
         current = group.set_index("symbol")["target_weight"]
+        current_symbols = set(current[current > 0].index.astype(str))
+        entered = sorted(current_symbols - previous_symbols)
+        exited = sorted(previous_symbols - current_symbols)
+        retained = sorted(current_symbols & previous_symbols)
         turnover = portfolio_turnover(previous, current)
         gross = float((group["target_weight"] * group["forward_return"].fillna(0)).sum())
         cost = turnover * transaction_cost
         net = gross - cost
-        monthly_rows.append({"month_end": pd.Timestamp(month), "gross_return": gross, "transaction_cost": cost, "net_return": net, "turnover": turnover, "cash_weight": max(0.0, 1 - current.sum())})
+        monthly_rows.append({
+            "month_end": pd.Timestamp(month),
+            "gross_return": gross,
+            "transaction_cost": cost,
+            "net_return": net,
+            "turnover": turnover,
+            "cash_weight": max(0.0, 1 - current.sum()),
+            "selected_count": len(current_symbols),
+            "entered_count": len(entered),
+            "exited_count": len(exited),
+            "entered_symbols": "、".join(entered),
+            "exited_symbols": "、".join(exited),
+            "retained_symbols": "、".join(retained),
+        })
         detail = group.copy()
         detail["contribution"] = detail["target_weight"] * detail["forward_return"]
+        detail["rebalance_action"] = detail["symbol"].astype(str).map(
+            lambda symbol: "新进入" if symbol in entered else ("继续持有" if symbol in retained else "未配置")
+        )
         detail_rows.append(detail)
         previous = current
+        previous_symbols = current_symbols
     monthly = pd.DataFrame(monthly_rows)
     if not monthly.empty:
         monthly["net_value"] = (1 + monthly["net_return"]).cumprod()

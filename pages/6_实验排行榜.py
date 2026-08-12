@@ -12,6 +12,9 @@ from app.ui import empty_state, setup_page
 
 
 setup_page("实验排行榜", "🏁")
+st.markdown("#### 原理与作用")
+st.write("实验排行榜集中保存参数调优产生的候选方案，并按统一的样本外综合得分排序。它用于比较因子权重、Rank ICIR、收益、回撤、换手率和数据覆盖率，避免只记住表现最好的一次实验。")
+st.info("排行榜第一名只是历史验证窗口中的相对优胜方案，不等于未来最佳策略。选择方案后仍需返回因子实验室重新计算，并通过Rank IC、月度组合回测及人工风险复核。")
 experiments = list_experiments(DEFAULT_DB_PATH)
 if experiments.empty:
     empty_state("尚未保存实验。请先前往参数调优页运行样本外实验。")

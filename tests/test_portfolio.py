@@ -20,6 +20,14 @@ def test_raw_weight_methods_sum_to_one():
         assert math.isclose(raw_portfolio_weights(frame, method).sum(), 1.0)
 
 
+def test_custom_dividend_inverse_volatility_mix_changes_weights():
+    frame = sample()
+    dividend_heavy = raw_portfolio_weights(frame, "blend", dividend_mix=0.8)
+    volatility_heavy = raw_portfolio_weights(frame, "blend", dividend_mix=0.2)
+    assert math.isclose(dividend_heavy.sum(), 1.0)
+    assert dividend_heavy.iloc[0] > volatility_heavy.iloc[0]
+
+
 def test_stock_and_sector_caps_and_cash_retention():
     frame = sample()
     constrained = apply_portfolio_constraints(frame, raw_portfolio_weights(frame), {"max_stock_weight": 0.10, "max_sector_weight": 0.25, "max_top5_weight": 0.40, "min_stock_weight": 0.01})

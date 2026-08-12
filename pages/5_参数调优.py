@@ -14,6 +14,9 @@ from app.ui import empty_state, setup_page
 
 
 setup_page("参数调优", "🎛️")
+st.markdown("#### 原理与作用")
+st.write("参数调优会生成有限数量的候选因子权重，在预留的历史验证窗口内重新计算股票得分、Rank IC和组合回测指标，再用统一评分比较候选方案。它的作用是检验默认权重附近是否存在更均衡的配置，而不是寻找历史收益最高的万能参数。")
+st.info("调优结果不会自动替换因子实验室权重。选中候选方案后，必须返回因子实验室重新计算因子，再重新进行Rank IC和月度组合回测。反复使用同一个验证期选择参数会造成过拟合。")
 available_models = available_feature_models(DEFAULT_DB_PATH)
 if not available_models:
     empty_state("尚无因子面板，无法进行滚动样本外调优。")
@@ -35,7 +38,7 @@ else:
     st.write("第一层在红利 30%–50%、低波 30%–50%、质量/流动性/规模 15%–30% 范围内按 5 个百分点搜索；第二层保留组内基准比例。本版本不暴力穷举 13 因子的全部组合。")
 cols = st.columns(4)
 max_experiments = cols[0].number_input("最大实验数", 1, 200, 25)
-top_n = cols[1].slider("入选数量", 10, 50, 30)
+top_n = cols[1].slider("入选数量", 3, 15, 10)
 transaction_cost = cols[2].number_input("交易成本", 0.0, 0.02, 0.001, 0.0001, format="%.4f")
 validation_months = cols[3].number_input("验证期（月）", 6, 36, 12)
 candidates = sampled_weight_candidates(int(max_experiments), model_name=model_name)

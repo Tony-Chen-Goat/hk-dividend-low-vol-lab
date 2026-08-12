@@ -25,12 +25,13 @@ model_name = st.selectbox(
 )
 if model_name == MODEL_YAHOO_10:
     st.info("Yahoo 基础10因子模式不要求自由流通市值；仍保留主板、价格、交易活跃度、停牌和成交额规则。")
-cols = st.columns(4)
+cols = st.columns(5)
 settings = {
     "main_board_only": cols[0].toggle("只保留主板普通股", True),
     "exclude_gem": cols[1].toggle("排除 GEM", True),
-    "min_price_hkd": cols[2].number_input("最低股价（港元）", 0.0, value=RISK_DEFAULTS["min_price_hkd"]),
-    "min_listing_days": cols[3].number_input("最低上市交易日", 0, value=RISK_DEFAULTS["min_listing_days"]),
+    "allow_reit": cols[2].toggle("允许 REIT", True, help="REIT不会仅因证券类型被排除，但仍须通过价格、交易活跃度、停牌、成交额及事件风险规则。"),
+    "min_price_hkd": cols[3].number_input("最低股价（港元）", 0.0, value=RISK_DEFAULTS["min_price_hkd"]),
+    "min_listing_days": cols[4].number_input("最低上市交易日", 0, value=RISK_DEFAULTS["min_listing_days"]),
 }
 cols2 = st.columns(4)
 settings.update({
@@ -57,4 +58,6 @@ if result.excluded.empty:
 else:
     excluded_display = result.excluded[[column for column in ["symbol", "name", "sector", "exclusion_reasons"] if column in result.excluded]]
     st.dataframe(localized_frame(excluded_display), use_container_width=True, hide_index=True)
-st.caption("港股不使用 A 股 ST 制度。本页不会显示“排除 ST 股”。")
+st.markdown("#### 什么情况下股票仍会被排除")
+st.write("即使允许REIT，股票仍可能因以下风险被排除：非主板或GEM、不支持的结构化证券类型、上市历史不足、股价过低、近60日交易活跃度不足、连续停牌超限、最近一年停止派息或大幅削减股息、20日平均成交额不足、完整13因子模式下自由流通市值缺失，以及退市、清盘、私有化或长期停牌事件已经生效。")
+st.caption("REIT分派与普通公司股息的经济性质不同，可能受租金收入、利率、资产估值、负债与配售影响；放行仅代表进入量化候选池，最终仍需人工复核公告。港股不使用A股ST制度。")
