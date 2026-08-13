@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from app.config import DEFAULT_DB_PATH
-from app.database import read_table, table_counts
+from app.database import latest_feature_summary, table_counts
 from app.experiment_store import list_experiments
 from app.ui import cloud_storage_notice, empty_state, setup_page, yahoo_notice
 
@@ -12,7 +12,7 @@ from app.ui import cloud_storage_notice, empty_state, setup_page, yahoo_notice
 quality = setup_page("港股红利低波实验室", "🧭")
 counts = table_counts(DEFAULT_DB_PATH)
 experiments = list_experiments(DEFAULT_DB_PATH)
-features = read_table("monthly_features", DEFAULT_DB_PATH)
+_, latest_count = latest_feature_summary(DEFAULT_DB_PATH)
 
 st.markdown("#### 以时间序列纪律为核心的港股红利低波研究工作台")
 st.write("按月末先执行风险过滤，再计算红利、低波、质量、流动性与规模因子，并使用下一月收益进行 Rank IC 与组合验证。每次手动权重实验通过独立编号保存，完成比较并批准一套正式实验后生成最新选股与人工复核清单。")
@@ -21,10 +21,6 @@ c1, c2, c3, c4 = st.columns(4)
 c1.metric("证券池", f"{counts['security_master']:,}")
 c2.metric("日线记录", f"{counts['daily_prices']:,}")
 c3.metric("分红记录", f"{counts['dividends']:,}")
-latest_count = 0
-if not features.empty:
-    latest = features["month_end"].max()
-    latest_count = int(features.loc[features["month_end"] == latest, "symbol"].nunique())
 c4.metric("最新选股候选", f"{latest_count:,}")
 
 left, right = st.columns([1.35, 1])

@@ -43,3 +43,34 @@ def test_empty_yahoo_company_info_does_not_fail_price_update(monkeypatch):
     assert result.failures == []
     assert result.securities.iloc[0]["symbol"] == "0267.HK"
     assert pd.isna(result.securities.iloc[0]["name"])
+
+
+def test_batch_sink_releases_accumulated_frames(monkeypatch):
+    index = pd.DatetimeIndex(["2026-08-03"], name="Date")
+    downloaded = pd.DataFrame(
+        {
+            "Open": [10.0], "High": [10.5], "Low": [9.8],
+            "Close": [10.2], "Adj Close": [10.2], "Volume": [1_000_000],
+        },
+        index=index,
+    )
+    fake_yfinance = SimpleNamespace(
+        download=lambda *args, **kwargs: downloaded,
+        Ticker=lambda symbol: _TickerWithEmptyInfo(),
+    )
+    monkeypatch.setitem(__import__("sys").modules, "yfinance", fake_yfinance)
+    saved = []
+
+    result = fetch_yahoo_data(
+        ["0267.HK", "0285.HK"],
+        date(2026, 8, 1),
+        date(2026, 8, 5),
+        batch_size=1,
+        attempts=1,
+        batch_sink=lambda batch: saved.append(batch.prices.copy()),
+    )
+
+    assert sum(len(frame) for frame in saved) == 2
+    assert result.prices.empty
+    assert result.price_row_count == 2
+    assert result.success_count == 2

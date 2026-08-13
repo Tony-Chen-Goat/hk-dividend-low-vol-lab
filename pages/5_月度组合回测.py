@@ -9,7 +9,7 @@ from app.analysis import backtest_analysis
 from app.backtest import performance_metrics
 from app.benchmarks import add_benchmark_curves
 from app.config import BENCHMARKS, DEFAULT_DB_PATH, MODEL_LABELS, RISK_DEFAULTS
-from app.database import read_table
+from app.database import minimum_stock_trade_date, read_table
 from app.display import localized_frame
 from app.experiment_store import experiment_display_name, experiment_score, get_experiment, store_backtest_results
 from app.monthly_details import monthly_rebalance_details
@@ -114,9 +114,12 @@ if maximum_invested < 1:
         f"股票仓位最多也只有 {maximum_invested:.0%}，至少会保留 {1 - maximum_invested:.0%} 现金。"
     )
 
-prices = read_table("daily_prices", DEFAULT_DB_PATH)
-stock_prices = prices[~prices["symbol"].astype(str).str.startswith("^")].copy() if not prices.empty else prices
-raw_start = pd.to_datetime(stock_prices["trade_date"], errors="coerce").min() if not stock_prices.empty else pd.NaT
+prices = read_table(
+    "daily_prices", DEFAULT_DB_PATH,
+    filters={"symbol": list(BENCHMARKS.values())},
+    columns=["symbol", "trade_date", "adjusted_close", "close"],
+)
+raw_start = pd.to_datetime(minimum_stock_trade_date(DEFAULT_DB_PATH), errors="coerce")
 if backtest_start <= date(2016, 1, 1) and (pd.isna(raw_start) or raw_start.date() > date(2011, 1, 31)):
     st.warning("要从2016年开始形成完整10因子月度组合，建议先回到数据中心把原始数据开始日期设为2011-01-01，重新更新Yahoo数据并在因子实验室重新计算。当前系统会从实际具备完整因子和下一月收益的首个月开始。")
 

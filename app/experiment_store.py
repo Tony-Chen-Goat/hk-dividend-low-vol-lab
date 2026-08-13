@@ -314,11 +314,11 @@ def store_backtest_results(
 def export_experiment_bundle(experiment_id: str, path: str | Path = DEFAULT_DB_PATH) -> bytes:
     experiment = get_experiment(experiment_id, path)
     tables = {
-        "rank_ic_monthly.csv": read_table("rank_ic_monthly", path),
-        "factor_ic_comparison.csv": read_table("experiment_factor_ic", path),
-        "backtest_monthly.csv": read_table("backtest_monthly", path),
-        "backtest_holdings.csv": read_table("backtest_holdings", path),
-        "experiment_universe.csv": read_table("experiment_universe", path),
+        "rank_ic_monthly.csv": read_table("rank_ic_monthly", path, filters={"experiment_id": experiment_id}),
+        "factor_ic_comparison.csv": read_table("experiment_factor_ic", path, filters={"experiment_id": experiment_id}),
+        "backtest_monthly.csv": read_table("backtest_monthly", path, filters={"experiment_id": experiment_id}),
+        "backtest_holdings.csv": read_table("backtest_holdings", path, filters={"experiment_id": experiment_id}),
+        "experiment_universe.csv": read_table("experiment_universe", path, filters={"experiment_id": experiment_id}),
     }
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -327,10 +327,8 @@ def export_experiment_bundle(experiment_id: str, path: str | Path = DEFAULT_DB_P
             json.dumps(experiment, ensure_ascii=False, indent=2, default=str),
         )
         for filename, frame in tables.items():
-            subset = frame[frame["experiment_id"] == experiment_id] if "experiment_id" in frame else frame
-            archive.writestr(filename, subset.to_csv(index=False).encode("utf-8-sig"))
-        features = read_table("monthly_features", path)
-        features = features[features["experiment_id"] == experiment_id].copy()
+            archive.writestr(filename, frame.to_csv(index=False).encode("utf-8-sig"))
+        features = read_table("monthly_features", path, filters={"experiment_id": experiment_id})
         summary_rows = []
         for row in features.to_dict("records"):
             payload = {

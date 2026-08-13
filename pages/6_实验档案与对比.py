@@ -60,12 +60,16 @@ else:
         "数据说明": selected_record.get("quality_note"),
     })
     action_cols = st.columns(2)
-    action_cols[0].download_button(
-        "下载完整实验数据包 ZIP",
-        export_experiment_bundle(selected, DEFAULT_DB_PATH),
-        f"experiment_{selected}.zip",
-        "application/zip",
-    )
+    if action_cols[0].button("生成完整实验数据包 ZIP"):
+        with st.spinner("正在按当前实验编号生成数据包……"):
+            bundle = export_experiment_bundle(selected, DEFAULT_DB_PATH)
+        action_cols[0].download_button(
+            "下载完整实验数据包 ZIP",
+            bundle,
+            f"experiment_{selected}.zip",
+            "application/zip",
+            on_click="ignore",
+        )
     if action_cols[1].button("批准为最新选股正式实验", type="primary"):
         if selected_record.get("status") != "completed":
             st.error("该实验尚未完成月度组合回测，不能批准。")
@@ -111,7 +115,10 @@ else:
                     },
                 )
 
-            backtests = read_table("backtest_monthly", DEFAULT_DB_PATH)
+            backtests = read_table(
+                "backtest_monthly", DEFAULT_DB_PATH,
+                filters={"experiment_id": [str(a), str(b)]},
+            )
             curves = common_period_curves(backtests, str(a), str(b))
             st.markdown("##### 共同回测区间的净值与回撤")
             if curves.empty:

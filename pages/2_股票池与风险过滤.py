@@ -3,7 +3,7 @@ from __future__ import annotations
 import streamlit as st
 
 from app.config import DEFAULT_DB_PATH, MODEL_FULL_13, MODEL_LABELS, MODEL_YAHOO_10, RISK_DEFAULTS
-from app.database import load_setting, read_table, save_setting
+from app.database import load_setting, read_recent_stock_prices, read_table, save_setting
 from app.display import localized_csv, localized_frame
 from app.ui import empty_state, setup_page
 from app.universe import apply_hk_risk_filters, build_risk_snapshot, default_filter_settings
@@ -11,7 +11,7 @@ from app.universe import apply_hk_risk_filters, build_risk_snapshot, default_fil
 
 setup_page("股票池与风险过滤", "🧹")
 securities = read_table("security_master", DEFAULT_DB_PATH)
-prices = read_table("daily_prices", DEFAULT_DB_PATH)
+prices = read_recent_stock_prices(DEFAULT_DB_PATH, 60)
 fundamentals = read_table("fundamentals", DEFAULT_DB_PATH)
 if securities.empty or prices.empty:
     empty_state()

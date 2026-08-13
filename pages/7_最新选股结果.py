@@ -20,7 +20,7 @@ if approved.empty:
 experiment_id = str(approved.iloc[0]["experiment_id"])
 experiment = get_experiment(experiment_id, DEFAULT_DB_PATH)
 model_name = experiment["model_name"]
-panel = load_feature_panel(DEFAULT_DB_PATH, model_name, experiment_id)
+panel = load_feature_panel(DEFAULT_DB_PATH, model_name, experiment_id, latest_only=True)
 if panel.empty:
     empty_state("尚无真实因子结果。请先更新数据并在因子实验室计算。")
     st.stop()

@@ -74,24 +74,31 @@ if st.button("开始更新 Yahoo 数据", type="primary"):
         def progress(done, total, symbol):
             bar.progress(done / max(total, 1)); status.caption(f"正在处理 {symbol}（{done}/{total}）")
         try:
-            result = fetch_yahoo_data(symbols, start, end, batch_size=int(batch_size), progress=progress)
+            def save_batch(batch):
+                with connect(DEFAULT_DB_PATH) as conn:
+                    upsert_rows(conn, "daily_prices", batch.prices.to_dict("records"))
+                    upsert_rows(conn, "dividends", batch.dividends.to_dict("records"))
+                    upsert_rows(conn, "corporate_actions", batch.corporate_actions.to_dict("records"))
+                    upsert_rows(
+                        conn,
+                        "security_master",
+                        batch.securities.to_dict("records"),
+                        preserve_existing_on_null=True,
+                    )
+
+            result = fetch_yahoo_data(
+                symbols, start, end, batch_size=int(batch_size), progress=progress,
+                batch_sink=save_batch,
+            )
             with connect(DEFAULT_DB_PATH) as conn:
-                upsert_rows(conn, "daily_prices", result.prices.to_dict("records"))
-                upsert_rows(conn, "dividends", result.dividends.to_dict("records"))
-                upsert_rows(conn, "corporate_actions", result.corporate_actions.to_dict("records"))
                 upsert_rows(
-                    conn,
-                    "security_master",
-                    result.securities.to_dict("records"),
-                    preserve_existing_on_null=True,
-                )
-                upsert_rows(conn, "update_logs", [{
+                    conn, "update_logs", [{
                     "started_at": pd.Timestamp.now().isoformat(), "finished_at": pd.Timestamp.now().isoformat(),
-                    "requested_count": len(symbols), "success_count": result.prices["symbol"].nunique() if not result.prices.empty else 0,
+                    "requested_count": len(symbols), "success_count": result.success_count,
                     "failed_count": len(result.failures), "failures_json": json.dumps([failure.__dict__ for failure in result.failures], ensure_ascii=False),
                     "status": "completed_with_warnings" if result.failures else "completed",
                 }])
-            st.success(f"更新完成：价格 {len(result.prices):,} 行，分红 {len(result.dividends):,} 行，公司行动 {len(result.corporate_actions):,} 行。")
+            st.success(f"更新完成：价格 {result.price_row_count:,} 行，分红 {result.dividend_row_count:,} 行，公司行动 {result.action_row_count:,} 行。")
             if result.failures:
                 st.warning("部分股票失败，任务其余部分已保存。")
                 st.dataframe(localized_frame(pd.DataFrame([failure.__dict__ for failure in result.failures])), use_container_width=True)
@@ -112,11 +119,31 @@ st.caption("Yahoo 基准代码 ^HSI 与 ^HSCE 已于 2026-08-06 通过五日只�
 
 st.markdown("#### 导入导出与缓存备份")
 cloud_storage_notice()
-download_cols = st.columns(4)
-for column, table, label in zip(download_cols, ["daily_prices", "monthly_features", "experiments"], ["价格 CSV", "因子 CSV", "实验 CSV"]):
-    column.download_button(label, export_table_csv(table), file_name=f"{table}.csv", mime="text/csv")
-if DEFAULT_DB_PATH.exists():
-    download_cols[3].download_button("SQLite 备份", DEFAULT_DB_PATH.read_bytes(), file_name="hk_dividend_lab.sqlite3", mime="application/x-sqlite3")
+st.caption("为避免大型价格表在每次页面刷新时占用内存，导出文件只在明确点击后生成；完整留档优先选择SQLite备份。")
+export_kind = st.selectbox(
+    "准备下载内容",
+    ["价格 CSV", "因子 CSV", "实验 CSV", "SQLite 备份"],
+)
+if st.button("生成所选下载文件"):
+    export_map = {
+        "价格 CSV": ("daily_prices.csv", "text/csv", lambda: export_table_csv("daily_prices")),
+        "因子 CSV": ("monthly_features.csv", "text/csv", lambda: export_table_csv("monthly_features")),
+        "实验 CSV": ("experiments.csv", "text/csv", lambda: export_table_csv("experiments")),
+        "SQLite 备份": (
+            "hk_dividend_lab.sqlite3", "application/x-sqlite3",
+            lambda: DEFAULT_DB_PATH.read_bytes(),
+        ),
+    }
+    filename, mime, producer = export_map[export_kind]
+    if export_kind == "SQLite 备份" and not DEFAULT_DB_PATH.exists():
+        st.error("当前还没有可下载的SQLite数据库。")
+    else:
+        with st.spinner("正在生成下载文件……"):
+            payload = producer()
+        st.download_button(
+            f"下载 {export_kind}", payload, file_name=filename, mime=mime,
+            on_click="ignore",
+        )
 backup = st.file_uploader("上传 SQLite 备份恢复（将替换当前运行缓存）", type=["sqlite", "sqlite3", "db"])
 if backup and st.button("检查并恢复 SQLite"):
     try:

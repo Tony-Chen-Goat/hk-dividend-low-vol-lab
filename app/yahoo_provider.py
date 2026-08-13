@@ -36,6 +36,10 @@ class FetchResult:
     corporate_actions: pd.DataFrame
     securities: pd.DataFrame
     failures: list[FetchFailure]
+    price_row_count: int = 0
+    dividend_row_count: int = 0
+    action_row_count: int = 0
+    success_count: int = 0
 
 
 def retry_call(func: Callable, attempts: int = 3, base_delay: float = 0.5):
@@ -90,6 +94,7 @@ def transform_price_frame(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
 def fetch_yahoo_data(
     symbols: Iterable[object], start: date, end: date, *, batch_size: int = 12,
     attempts: int = 3, progress: Callable[[int, int, str], None] | None = None,
+    batch_sink: Callable[[FetchResult], None] | None = None,
 ) -> FetchResult:
     import yfinance as yf
 
@@ -104,8 +109,13 @@ def fetch_yahoo_data(
     dividends: list[pd.DataFrame] = []
     corporate_actions: list[pd.DataFrame] = []
     securities: list[dict] = []
+    price_row_count = dividend_row_count = action_row_count = success_count = 0
     total = len(normalized)
     for offset in range(0, total, batch_size):
+        price_start = len(prices)
+        dividend_start = len(dividends)
+        action_start = len(corporate_actions)
+        security_start = len(securities)
         batch = normalized[offset : offset + batch_size]
         tickers = [item[1] for item in batch]
         try:
@@ -159,11 +169,39 @@ def fetch_yahoo_data(
                 })
             except Exception as exc:
                 failures.append(FetchFailure(symbol, str(exc)))
+        batch_prices = pd.concat(prices[price_start:], ignore_index=True) if len(prices) > price_start else pd.DataFrame()
+        batch_dividends = pd.concat(dividends[dividend_start:], ignore_index=True) if len(dividends) > dividend_start else pd.DataFrame()
+        batch_actions = pd.concat(corporate_actions[action_start:], ignore_index=True) if len(corporate_actions) > action_start else pd.DataFrame()
+        batch_securities = pd.DataFrame(securities[security_start:])
+        price_row_count += len(batch_prices)
+        dividend_row_count += len(batch_dividends)
+        action_row_count += len(batch_actions)
+        success_count += batch_prices["symbol"].nunique() if not batch_prices.empty else 0
+        if batch_sink is not None:
+            batch_sink(FetchResult(
+                prices=batch_prices,
+                dividends=batch_dividends,
+                corporate_actions=batch_actions,
+                securities=batch_securities,
+                failures=[],
+                price_row_count=len(batch_prices),
+                dividend_row_count=len(batch_dividends),
+                action_row_count=len(batch_actions),
+                success_count=batch_prices["symbol"].nunique() if not batch_prices.empty else 0,
+            ))
+            del prices[price_start:]
+            del dividends[dividend_start:]
+            del corporate_actions[action_start:]
+            del securities[security_start:]
     return FetchResult(
         prices=pd.concat(prices, ignore_index=True) if prices else pd.DataFrame(),
         dividends=pd.concat(dividends, ignore_index=True) if dividends else pd.DataFrame(),
         corporate_actions=pd.concat(corporate_actions, ignore_index=True) if corporate_actions else pd.DataFrame(),
         securities=pd.DataFrame(securities), failures=failures,
+        price_row_count=price_row_count,
+        dividend_row_count=dividend_row_count,
+        action_row_count=action_row_count,
+        success_count=success_count,
     )
 
 

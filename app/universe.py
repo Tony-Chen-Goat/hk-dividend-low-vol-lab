@@ -125,7 +125,7 @@ def build_risk_snapshot(prices: pd.DataFrame, securities: pd.DataFrame, fundamen
         streaks = suspended.groupby((suspended != suspended.shift()).cumsum()).cumsum()
         records.append({
             "symbol": symbol,
-            "listing_days": int(group["trade_date"].nunique()),
+            "listing_days": int(group["listing_days"].max()) if "listing_days" in group else int(group["trade_date"].nunique()),
             "close": group.iloc[-1]["close"],
             "valid_trading_ratio_60d": float(valid.mean()) if len(tail60) else np.nan,
             "max_suspension_days": int(streaks.max()) if len(streaks) else 0,

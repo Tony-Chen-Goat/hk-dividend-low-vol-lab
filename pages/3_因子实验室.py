@@ -98,7 +98,9 @@ else:
         index=index,
         format_func=lambda value: f"{experiment_display_name(model_experiments.set_index('experiment_id').loc[value])} · {value}",
     )
-    panel = load_feature_panel(DEFAULT_DB_PATH, model_name, selected_experiment)
+    panel = load_feature_panel(
+        DEFAULT_DB_PATH, model_name, selected_experiment, latest_only=True
+    )
 if panel.empty:
     empty_state()
 else:

@@ -358,13 +358,107 @@ def table_counts(path: str | Path = DEFAULT_DB_PATH) -> dict[str, int]:
         return {name: conn.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0] for name in names}
 
 
-def read_table(table: str, path: str | Path = DEFAULT_DB_PATH) -> pd.DataFrame:
+READABLE_TABLES = {
+    "security_master", "daily_prices", "dividends", "corporate_actions",
+    "fundamentals", "monthly_universe", "monthly_features",
+    "experiment_universe", "forward_returns", "rank_ic_monthly",
+    "experiment_factor_ic", "backtest_monthly", "backtest_holdings",
+    "experiments", "research_settings", "update_logs",
+}
+
+
+def read_table(
+    table: str,
+    path: str | Path = DEFAULT_DB_PATH,
+    *,
+    filters: Mapping[str, object] | None = None,
+    columns: Iterable[str] | None = None,
+) -> pd.DataFrame:
+    """Read only the requested slice of an application table.
+
+    Filtering in SQLite is important on Streamlit Community Cloud: reading a
+    complete history and filtering it afterwards can temporarily hold several
+    copies of the same large DataFrame during every widget rerun.
+    """
     initialize_database(path)
-    allowed = {"security_master", "daily_prices", "dividends", "corporate_actions", "fundamentals", "monthly_universe", "monthly_features", "experiment_universe", "forward_returns", "rank_ic_monthly", "experiment_factor_ic", "backtest_monthly", "backtest_holdings", "experiments", "research_settings", "update_logs"}
-    if table not in allowed:
+    if table not in READABLE_TABLES:
         raise ValueError(f"不允许读取表: {table}")
     with connect(path) as conn:
-        return pd.read_sql_query(f"SELECT * FROM {table}", conn)
+        allowed_columns = {
+            str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        selected = list(columns) if columns is not None else ["*"]
+        invalid = [column for column in selected if column != "*" and column not in allowed_columns]
+        if invalid:
+            raise ValueError(f"{table} 不存在列: {', '.join(invalid)}")
+        clauses: list[str] = []
+        params: list[object] = []
+        for column, value in (filters or {}).items():
+            if column not in allowed_columns:
+                raise ValueError(f"{table} 不存在筛选列: {column}")
+            if value is None:
+                clauses.append(f"{column} IS NULL")
+            elif isinstance(value, (list, tuple, set, frozenset)):
+                values = list(value)
+                if not values:
+                    clauses.append("1 = 0")
+                else:
+                    clauses.append(f"{column} IN ({','.join('?' for _ in values)})")
+                    params.extend(values)
+            else:
+                clauses.append(f"{column} = ?")
+                params.append(value)
+        sql = f"SELECT {','.join(selected)} FROM {table}"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        return pd.read_sql_query(sql, conn, params=params)
+
+
+def latest_feature_summary(path: str | Path = DEFAULT_DB_PATH) -> tuple[str | None, int]:
+    initialize_database(path)
+    with connect(path) as conn:
+        latest = conn.execute("SELECT MAX(month_end) FROM monthly_features").fetchone()[0]
+        if latest is None:
+            return None, 0
+        count = conn.execute(
+            "SELECT COUNT(DISTINCT symbol) FROM monthly_features WHERE month_end = ?",
+            (latest,),
+        ).fetchone()[0]
+    return str(latest), int(count or 0)
+
+
+def minimum_stock_trade_date(path: str | Path = DEFAULT_DB_PATH) -> str | None:
+    initialize_database(path)
+    with connect(path) as conn:
+        value = conn.execute(
+            "SELECT MIN(trade_date) FROM daily_prices WHERE symbol NOT LIKE '^%'"
+        ).fetchone()[0]
+    return str(value) if value is not None else None
+
+
+def read_recent_stock_prices(
+    path: str | Path = DEFAULT_DB_PATH, lookback: int = 60,
+) -> pd.DataFrame:
+    """Return recent rows plus an all-history listing-day count per security."""
+    initialize_database(path)
+    with connect(path) as conn:
+        return pd.read_sql_query(
+            """
+            WITH ranked AS (
+              SELECT symbol, trade_date, close, volume,
+                     ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trade_date DESC) AS recent_rank,
+                     COUNT(*) OVER (PARTITION BY symbol) AS listing_days
+              FROM daily_prices
+              WHERE symbol NOT LIKE '^%'
+            )
+            SELECT symbol, trade_date, close, volume, listing_days
+            FROM ranked
+            WHERE recent_rank <= ?
+            ORDER BY symbol, trade_date
+            """,
+            conn,
+            params=(int(lookback),),
+        )
 
 
 def export_table_csv(table: str, path: str | Path = DEFAULT_DB_PATH) -> bytes:

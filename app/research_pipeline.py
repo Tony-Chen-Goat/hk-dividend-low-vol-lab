@@ -36,12 +36,38 @@ def compute_and_store_features(
     risk_settings: dict | None = None,
 ) -> pd.DataFrame:
     initialize_database(path)
-    prices = read_table("daily_prices", path)
-    dividends = read_table("dividends", path)
-    fundamentals = read_table("fundamentals", path)
-    securities = read_table("security_master", path)
+    prices = read_table(
+        "daily_prices", path,
+        columns=["symbol", "trade_date", "close", "adjusted_close", "volume"],
+    )
+    dividends = read_table(
+        "dividends", path,
+        columns=["symbol", "ex_date", "dividend_per_share"],
+    )
+    fundamentals = read_table(
+        "fundamentals", path,
+        columns=[
+            "symbol", "report_period", "published_date", "net_income",
+            "operating_cash_flow", "cash_dividends_paid", "free_float_shares",
+            "payout_ratio",
+        ],
+    )
+    securities = read_table(
+        "security_master", path,
+        columns=[
+            "symbol", "name", "sector", "listing_date", "security_type",
+            "board", "index_membership", "effective_date", "end_date",
+        ],
+    )
     if prices.empty:
         return pd.DataFrame()
+    prices["trade_date"] = pd.to_datetime(prices["trade_date"], errors="coerce")
+    if not dividends.empty:
+        dividends["ex_date"] = pd.to_datetime(dividends["ex_date"], errors="coerce")
+    if not fundamentals.empty:
+        fundamentals["published_date"] = pd.to_datetime(
+            fundamentals["published_date"], errors="coerce"
+        )
     if not securities.empty:
         stock_symbols = set(securities["symbol"].dropna().astype(str))
         prices = prices[prices["symbol"].isin(stock_symbols)].copy()
@@ -73,21 +99,51 @@ def compute_and_store_features(
         },
         path,
     )
-    rows, stored, universe_rows = [], [], []
+    rows: list[pd.DataFrame] = []
+    coverage_values: list[float] = []
     months = available_month_ends(prices)
     forward = calculate_forward_returns(prices)
     forward_lookup = {
         (str(row.symbol), pd.Timestamp(row.month_end)): row
         for row in forward.itertuples()
     }
+    forward_rows = [
+        {"month_end": pd.Timestamp(row.month_end).date().isoformat(), "symbol": row.symbol,
+         "next_month_end": pd.Timestamp(row.next_month_end).date().isoformat() if pd.notna(row.next_month_end) else None,
+         "forward_return": _json_value(row.forward_return)}
+        for row in forward.itertuples()
+    ]
+    with connect(path) as conn:
+        conn.execute("DELETE FROM monthly_features WHERE experiment_id = ?", (experiment_id,))
+        conn.execute("DELETE FROM experiment_universe WHERE experiment_id = ?", (experiment_id,))
+        upsert_rows(conn, "forward_returns", forward_rows)
+
+    price_dates = prices["trade_date"]
+    date_arrays = {
+        str(symbol): np.sort(group["trade_date"].dropna().to_numpy())
+        for symbol, group in prices.groupby("symbol", sort=False)
+    }
     for index, month in enumerate(months, start=1):
+        month = pd.Timestamp(month)
+        history_start = pd.Timestamp(year=month.year - 5, month=1, day=1)
+        month_prices = prices[(price_dates >= history_start) & (price_dates <= month)].copy()
+        month_prices["listing_days"] = month_prices["symbol"].astype(str).map({
+            symbol: int(np.searchsorted(values, month.to_datetime64(), side="right"))
+            for symbol, values in date_arrays.items()
+        })
+        month_dividends = dividends
+        if not dividends.empty:
+            month_dividends = dividends[
+                (dividends["ex_date"] >= history_start) & (dividends["ex_date"] <= month)
+            ].copy()
         risk_snapshot = build_risk_snapshot_at_date(
-            prices,
+            month_prices,
             securities,
             month,
             fundamentals,
         )
         filtered = apply_hk_risk_filters(risk_snapshot, active_risk_settings)
+        universe_rows = []
         for row in pd.concat([filtered.included, filtered.excluded], ignore_index=True).to_dict("records"):
             universe_rows.append({
                 "experiment_id": experiment_id,
@@ -97,14 +153,16 @@ def compute_and_store_features(
                 "exclusion_reasons": row.get("exclusion_reasons"),
                 "source": "point_in_time_risk_filter",
             })
+        with connect(path) as conn:
+            upsert_rows(conn, "experiment_universe", universe_rows)
         allowed_symbols = set(filtered.included["symbol"].astype(str)) if not filtered.included.empty else set()
         if not allowed_symbols:
             if progress:
                 progress(index, len(months), month)
             continue
         raw = calculate_monthly_features(
-            prices[prices["symbol"].isin(allowed_symbols)],
-            dividends[dividends["symbol"].isin(allowed_symbols)] if not dividends.empty else dividends,
+            month_prices[month_prices["symbol"].isin(allowed_symbols)],
+            month_dividends[month_dividends["symbol"].isin(allowed_symbols)] if not month_dividends.empty else month_dividends,
             fundamentals[fundamentals["symbol"].isin(allowed_symbols)] if not fundamentals.empty else fundamentals,
             month,
         )
@@ -114,7 +172,8 @@ def compute_and_store_features(
             raw = raw.merge(securities[["symbol", "sector"]], on="symbol", how="left")
         scored = score_cross_section(raw, active_weights)
         scored["model_name"] = model_name
-        rows.append(scored)
+        rows.append(scored[["month_end", "symbol"]].copy())
+        stored = []
         for _, row in scored.iterrows():
             forward_row = forward_lookup.get((str(row["symbol"]), pd.Timestamp(month)))
             raw_values = {factor: _json_value(row.get(factor)) for factor in FACTOR_WEIGHTS}
@@ -131,24 +190,17 @@ def compute_and_store_features(
                 "next_month_end": pd.Timestamp(forward_row.next_month_end).date().isoformat() if forward_row is not None and pd.notna(forward_row.next_month_end) else None,
                 "forward_return": _json_value(forward_row.forward_return) if forward_row is not None else None,
             })
+            if pd.notna(row.get("factor_coverage")):
+                coverage_values.append(float(row["factor_coverage"]))
+        with connect(path) as conn:
+            upsert_rows(conn, "monthly_features", stored)
         if progress:
             progress(index, len(months), month)
-    forward_rows = [
-        {"month_end": pd.Timestamp(row.month_end).date().isoformat(), "symbol": row.symbol,
-         "next_month_end": pd.Timestamp(row.next_month_end).date().isoformat() if pd.notna(row.next_month_end) else None,
-         "forward_return": _json_value(row.forward_return)}
-        for row in forward.itertuples()
-    ]
     with connect(path) as conn:
-        conn.execute("DELETE FROM monthly_features WHERE experiment_id = ?", (experiment_id,))
-        conn.execute("DELETE FROM experiment_universe WHERE experiment_id = ?", (experiment_id,))
-        upsert_rows(conn, "monthly_features", stored)
-        upsert_rows(conn, "experiment_universe", universe_rows)
-        upsert_rows(conn, "forward_returns", forward_rows)
         conn.execute(
             "UPDATE experiments SET status = 'features_ready', coverage = ? WHERE experiment_id = ?",
             (
-                float(np.mean([row.get("coverage") for row in stored if row.get("coverage") is not None])) if stored else None,
+                float(np.mean(coverage_values)) if coverage_values else None,
                 experiment_id,
             ),
         )
@@ -156,7 +208,7 @@ def compute_and_store_features(
         return pd.DataFrame()
     result = pd.concat(rows, ignore_index=True)
     result["experiment_id"] = experiment_id
-    return result.merge(forward, on=["symbol", "month_end"], how="left")
+    return result
 
 
 def available_experiments(path: str | Path = DEFAULT_DB_PATH) -> pd.DataFrame:
@@ -188,20 +240,31 @@ def load_feature_panel(
     path: str | Path = DEFAULT_DB_PATH,
     model_name: str = MODEL_FULL_13,
     experiment_id: str | None = None,
+    latest_only: bool = False,
 ) -> pd.DataFrame:
-    features = read_table("monthly_features", path)
-    securities = read_table("security_master", path)
-    if features.empty:
-        return features
     if experiment_id is None:
         experiments = available_experiments(path)
         matching = experiments[experiments["model_name"] == model_name]
         if matching.empty:
             return pd.DataFrame()
         experiment_id = str(matching.iloc[0]["experiment_id"])
-    features = features[features["experiment_id"] == experiment_id].copy()
+    filters: dict[str, object] = {"experiment_id": experiment_id}
+    if latest_only:
+        initialize_database(path)
+        with connect(path) as conn:
+            latest = conn.execute(
+                "SELECT MAX(month_end) FROM monthly_features WHERE experiment_id = ?",
+                (experiment_id,),
+            ).fetchone()[0]
+        if latest is None:
+            return pd.DataFrame()
+        filters["month_end"] = latest
+    features = read_table("monthly_features", path, filters=filters)
     if features.empty:
         return features
+    securities = read_table(
+        "security_master", path, columns=["symbol", "name", "sector"]
+    )
     expanded = []
     for row in features.itertuples(index=False):
         payload = {
