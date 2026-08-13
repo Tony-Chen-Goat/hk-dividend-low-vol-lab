@@ -6,13 +6,14 @@ import pandas as pd
 import streamlit as st
 
 from app.analysis import backtest_analysis
-from app.backtest import add_benchmark_curves, performance_metrics
-from app.charts import equity_curve_chart, selected_month_from_chart_event
+from app.backtest import performance_metrics
+from app.benchmarks import add_benchmark_curves
 from app.config import BENCHMARKS, DEFAULT_DB_PATH, MODEL_LABELS, RISK_DEFAULTS
 from app.database import read_table
 from app.display import localized_frame
 from app.experiment_store import experiment_score, get_experiment, store_backtest_results
 from app.monthly_details import monthly_rebalance_details
+from app.monthly_chart import equity_curve_chart, selected_month_from_chart_event
 from app.research_pipeline import available_experiments, backtest_from_panel, load_feature_panel
 from app.ui import empty_state, setup_page
 

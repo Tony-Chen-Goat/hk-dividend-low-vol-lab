@@ -2,8 +2,8 @@ import math
 
 import pandas as pd
 
-from app.backtest import add_benchmark_curves
-from app.charts import equity_curve_chart, selected_month_from_chart_event
+from app.benchmarks import add_benchmark_curves
+from app.monthly_chart import equity_curve_chart, selected_month_from_chart_event
 from app.monthly_details import monthly_rebalance_details
 
 
