@@ -6,17 +6,56 @@ import pandas as pd
 import streamlit as st
 
 from app.analysis import backtest_analysis
-from app.backtest import performance_metrics
-from app.charts import equity_curve_chart
+from app.backtest import add_benchmark_curves, performance_metrics
+from app.charts import equity_curve_chart, selected_month_from_chart_event
 from app.config import BENCHMARKS, DEFAULT_DB_PATH, MODEL_LABELS, RISK_DEFAULTS
 from app.database import read_table
 from app.display import localized_frame
 from app.experiment_store import experiment_score, get_experiment, store_backtest_results
+from app.monthly_details import monthly_rebalance_details
 from app.research_pipeline import available_experiments, backtest_from_panel, load_feature_panel
 from app.ui import empty_state, setup_page
 
 
 setup_page("月度组合回测", "📈")
+
+
+@st.dialog("月度调仓详情", width="large")
+def show_monthly_rebalance_dialog(selected_month, monthly_data: pd.DataFrame, holdings_data: pd.DataFrame):
+    summary, transactions, positions = monthly_rebalance_details(
+        monthly_data, holdings_data, selected_month
+    )
+    if summary is None:
+        st.warning("找不到该月份的回测记录。")
+        return
+
+    month_label = pd.Timestamp(selected_month).strftime("%Y年%m月")
+    st.subheader(month_label)
+    st.caption("这是该月月末形成的调仓信号与持仓；持仓收益在下一月实现。")
+    metric_columns = st.columns(4)
+    metric_columns[0].metric("扣费后组合收益", f"{float(summary.get('net_return', 0)):.2%}")
+    metric_columns[1].metric("组合换手率", f"{float(summary.get('turnover', 0)):.2%}")
+    metric_columns[2].metric("交易成本", f"{float(summary.get('transaction_cost', 0)):.3%}")
+    metric_columns[3].metric("保留现金比例", f"{float(summary.get('cash_weight', 0)):.2%}")
+
+    transaction_tab, holding_tab = st.tabs(["每月交易记录", "每月持仓情况"])
+    with transaction_tab:
+        st.dataframe(transactions, use_container_width=True, hide_index=True)
+    with holding_tab:
+        if positions.empty:
+            st.info("该月份没有可展示的实际持仓。")
+        else:
+            holding_columns = [
+                "symbol", "name", "sector", "model_score", "target_weight",
+                "forward_return", "contribution", "rebalance_action",
+            ]
+            st.dataframe(
+                localized_frame(positions[[column for column in holding_columns if column in positions]]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+
 experiments = available_experiments(DEFAULT_DB_PATH)
 if experiments.empty:
     empty_state("尚无月度因子面板。请先在因子实验室执行计算。")
@@ -96,21 +135,17 @@ monthly, holdings = backtest_from_panel(
 if monthly.empty:
     empty_state("没有足够的下一月收益或完整因子用于回测。")
     st.stop()
-benchmark_return = None
-if not prices.empty:
-    prices["trade_date"] = pd.to_datetime(prices["trade_date"])
-    monthly["period"] = pd.to_datetime(monthly["month_end"]).dt.to_period("M")
-    for benchmark_name, benchmark_symbol in BENCHMARKS.items():
-        bench = prices[prices["symbol"] == benchmark_symbol].sort_values("trade_date").copy()
-        if not bench.empty:
-            bench = bench.groupby(bench["trade_date"].dt.to_period("M")).tail(1)
-            bench["period"] = bench["trade_date"].dt.to_period("M")
-            bench["benchmark_return"] = bench["adjusted_close"].pct_change(fill_method=None)
-            mapping = bench.set_index("period")["benchmark_return"]
-            monthly[f"{benchmark_name}_return"] = monthly["period"].map(mapping)
-            monthly[f"{benchmark_name}_value"] = (1 + monthly[f"{benchmark_name}_return"].fillna(0)).cumprod()
-            if benchmark_return is None:
-                benchmark_return = monthly[f"{benchmark_name}_return"]
+monthly, benchmark_return = add_benchmark_curves(monthly, prices, BENCHMARKS)
+missing_benchmarks = [
+    benchmark_name for benchmark_name in BENCHMARKS
+    if f"{benchmark_name}_value" not in monthly
+    or monthly[f"{benchmark_name}_value"].notna().sum() == 0
+]
+if missing_benchmarks:
+    st.warning(
+        f"暂时无法绘制{'、'.join(missing_benchmarks)}：数据库中没有与回测月份连续对齐的指数价格。"
+        "请返回数据中心执行“更新已验证基准指数”。"
+    )
 metrics = performance_metrics(monthly, benchmark_return)
 rank_icir = experiment.get("metrics", {}).get("rank_icir")
 information_ratio = metrics.get("information_ratio")
@@ -154,7 +189,21 @@ for column, (label, key, fmt) in zip(cols, [
     value = metrics[key]
     column.metric(label, format(value, fmt) if pd.notna(value) else "—")
 st.markdown("#### 动态月度调仓净值")
-st.plotly_chart(equity_curve_chart(monthly[["month_end", "net_value", "gross_value"]]), use_container_width=True)
+curve_columns = [
+    "month_end", "net_value", "gross_value",
+    *[f"{benchmark_name}_value" for benchmark_name in BENCHMARKS],
+]
+chart_event = st.plotly_chart(
+    equity_curve_chart(monthly[[column for column in curve_columns if column in monthly]]),
+    use_container_width=True,
+    key=f"monthly_equity_curve_{experiment_id}",
+    on_select="rerun",
+    selection_mode="points",
+)
+st.caption("横轴按年显示，短刻度代表月份。点击扣费后组合净值曲线上的绿色圆点，可查看该月交易记录与持仓情况。基准指数缺失月份保持为空，不按零收益补齐。")
+selected_month = selected_month_from_chart_event(chart_event)
+if selected_month is not None:
+    show_monthly_rebalance_dialog(selected_month, monthly, holdings)
 analysis = backtest_analysis(metrics, monthly, benchmark_return)
 st.markdown("#### 通俗分析与研究结论")
 st.info(f"{analysis['status']}：{analysis['summary']}")
@@ -174,4 +223,4 @@ with tab4:
     if "sector" in holdings:
         sector = holdings.groupby(["month_end", "sector"], dropna=False)["target_weight"].sum().reset_index()
         st.dataframe(localized_frame(sector), use_container_width=True, hide_index=True)
-st.caption("gross_value为未扣交易成本的动态月度调仓累计净值；net_value为扣除交易成本后的累计净值。文章方案一基准：月频调仓、传统日波动率筛选并按股息率加权；不使用因子总分和日频CV代理。")
+st.caption("扣费前组合净值为尚未扣除交易成本的动态月度调仓累计净值；扣费后组合净值为扣除交易成本后的累计净值。文章方案一基准：月频调仓、传统日波动率筛选并按股息率加权；不使用因子总分和日频CV代理。")
