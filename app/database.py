@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
+import re
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterable, Iterator, Mapping
@@ -88,6 +89,7 @@ CREATE TABLE IF NOT EXISTS backtest_monthly (
 );
 CREATE TABLE IF NOT EXISTS experiments (
   experiment_id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL,
+  version_name TEXT, experiment_note TEXT,
   model_name TEXT, universe_name TEXT, data_start TEXT, data_end TEXT, train_window TEXT,
   validation_window TEXT, factor_weights_json TEXT, group_weights_json TEXT,
   portfolio_method TEXT, selected_count INTEGER, max_stock_weight REAL,
@@ -196,6 +198,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         row[1] for row in conn.execute("PRAGMA table_info(experiments)").fetchall()
     }
     for column, definition in {
+        "version_name": "TEXT", "experiment_note": "TEXT",
         "universe_name": "TEXT", "data_start": "TEXT", "data_end": "TEXT",
         "train_window": "TEXT", "validation_window": "TEXT",
         "portfolio_method": "TEXT", "selected_count": "INTEGER",
@@ -221,6 +224,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         "UPDATE experiments SET backtest_settings_json = '{}' "
         "WHERE backtest_settings_json IS NULL"
     )
+    _backfill_experiment_versions(conn)
     for experiment_id, model_name in legacy_experiments:
         conn.execute(
             """
@@ -239,6 +243,8 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             ),
         )
 
+    _backfill_experiment_versions(conn)
+
     holding_columns = {
         row[1] for row in conn.execute("PRAGMA table_info(backtest_holdings)").fetchall()
     }
@@ -249,6 +255,47 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     }.items():
         if column not in holding_columns:
             conn.execute(f"ALTER TABLE backtest_holdings ADD COLUMN {column} {definition}")
+
+
+def _experiment_local_date(value) -> str:
+    timestamp = pd.to_datetime(value, errors="coerce")
+    if pd.isna(timestamp):
+        timestamp = pd.Timestamp.now(tz="Asia/Shanghai")
+    elif timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize("Asia/Shanghai")
+    else:
+        timestamp = timestamp.tz_convert("Asia/Shanghai")
+    return timestamp.strftime("%Y年%m月%d日")
+
+
+def _backfill_experiment_versions(conn: sqlite3.Connection) -> None:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(experiments)").fetchall()}
+    if not {"version_name", "experiment_note"}.issubset(columns):
+        return
+    rows = conn.execute(
+        "SELECT experiment_id, name, created_at, version_name, experiment_note "
+        "FROM experiments ORDER BY created_at, experiment_id"
+    ).fetchall()
+    sequences: dict[str, int] = {}
+    for row in rows:
+        version_name = row[3]
+        if version_name:
+            match = re.match(r"^(\d{4}年\d{2}月\d{2}日)-第(\d+)版$", str(version_name))
+            if match:
+                sequences[match.group(1)] = max(sequences.get(match.group(1), 0), int(match.group(2)))
+    for experiment_id, old_name, created_at, version_name, experiment_note in rows:
+        if not version_name:
+            date_label = _experiment_local_date(created_at)
+            sequences[date_label] = sequences.get(date_label, 0) + 1
+            version_name = f"{date_label}-第{sequences[date_label]:03d}版"
+        note = experiment_note
+        if not note and old_name and str(old_name) != str(version_name):
+            note = str(old_name)
+        conn.execute(
+            "UPDATE experiments SET version_name = ?, experiment_note = ?, name = ? "
+            "WHERE experiment_id = ?",
+            (version_name, note, version_name, experiment_id),
+        )
 
 
 @contextmanager

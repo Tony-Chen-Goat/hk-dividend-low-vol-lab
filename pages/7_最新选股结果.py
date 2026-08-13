@@ -32,7 +32,7 @@ max_stock = float(backtest_settings.get("max_stock_weight") or experiment.get("m
 max_sector = float(backtest_settings.get("max_sector_weight") or experiment.get("max_sector_weight") or RISK_DEFAULTS["max_sector_weight"])
 dividend_pct = int(backtest_settings.get("dividend_pct", 50))
 inverse_vol_pct = int(backtest_settings.get("inverse_volatility_pct", 50))
-st.success(f"正式实验：{experiment['name']} · {experiment_id} · {MODEL_LABELS.get(model_name, model_name)}")
+st.success(f"正式实验：{experiment['display_name']} · {experiment_id} · {MODEL_LABELS.get(model_name, model_name)}")
 st.caption(f"本页只读取已批准实验被冻结设置：每月入选 {top_n} 只，股息率/逆波动率资金配置 {dividend_pct}%/{inverse_vol_pct}%。若要修改，请创建新实验并重新验证后再批准。")
 top5_limit = RISK_DEFAULTS["max_top5_weight"]
 maximum_invested = min(

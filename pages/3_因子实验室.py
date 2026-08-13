@@ -14,7 +14,7 @@ from app.config import (
 )
 from app.database import load_setting
 from app.display import localized_frame
-from app.experiment_store import get_experiment
+from app.experiment_store import experiment_display_name, get_experiment, next_experiment_version_name
 from app.research_pipeline import available_experiments, compute_and_store_features, load_feature_panel
 from app.scoring import validate_weights
 from app.ui import empty_state, setup_page
@@ -49,10 +49,12 @@ valid, delta = validate_weights(weights)
 st.metric("权重合计", f"{sum(weights.values()):.0%}")
 if not valid:
     st.error(f"权重不等于100%，禁止运行。需{'增加' if delta > 0 else '减少'} {abs(delta):.1%}。")
-experiment_name = st.text_input(
-    "实验名称",
-    value=f"手动实验-{pd.Timestamp.now().strftime('%Y%m%d-%H%M')}",
-    help="每次计算都会生成独立实验编号，不会覆盖以前的实验。",
+next_version = next_experiment_version_name(DEFAULT_DB_PATH)
+st.info(f"本次实验将自动命名为：{next_version}。同一天继续创建时，版本序号会自动递增。")
+experiment_note = st.text_input(
+    "实验备注",
+    value="默认权重" if model_name == MODEL_YAHOO_10 else "完整13因子",
+    help="填写本次调整目的，例如“提高低波权重”或“5只集中组合”；系统版本名称不能手动修改。",
 )
 risk_settings = load_setting(f"risk_filter_{model_name}", {}, DEFAULT_DB_PATH) or {}
 if risk_settings:
@@ -69,7 +71,7 @@ if st.button("创建新实验并计算月度因子", type="primary", disabled=no
             weights,
             progress,
             model_name=model_name,
-            experiment_name=experiment_name.strip() or "未命名手动实验",
+            experiment_name=experiment_note.strip() or "未填写备注",
             risk_settings=risk_settings,
         )
         if panel.empty:
@@ -94,7 +96,7 @@ else:
         "查看已保存实验",
         options,
         index=index,
-        format_func=lambda value: f"{model_experiments.set_index('experiment_id').loc[value, 'name']} · {value}",
+        format_func=lambda value: f"{experiment_display_name(model_experiments.set_index('experiment_id').loc[value])} · {value}",
     )
     panel = load_feature_panel(DEFAULT_DB_PATH, model_name, selected_experiment)
 if panel.empty:

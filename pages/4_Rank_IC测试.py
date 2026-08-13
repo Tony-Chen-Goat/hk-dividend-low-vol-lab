@@ -7,7 +7,7 @@ from app.analysis import rank_ic_analysis
 from app.charts import rank_ic_chart
 from app.config import DEFAULT_DB_PATH, FACTOR_LABELS, MODEL_LABELS
 from app.display import localized_frame
-from app.experiment_store import get_experiment, store_rank_ic_results
+from app.experiment_store import experiment_display_name, get_experiment, store_rank_ic_results
 from app.rank_ic import compare_factor_ics, ic_summary, monthly_rank_ic
 from app.research_pipeline import available_experiments, load_feature_panel
 from app.ui import empty_state, setup_page
@@ -25,7 +25,7 @@ experiment_id = st.selectbox(
     "选择实验版本",
     experiment_options,
     index=index,
-    format_func=lambda value: f"{experiments.set_index('experiment_id').loc[value, 'name']} · {MODEL_LABELS.get(experiments.set_index('experiment_id').loc[value, 'model_name'], experiments.set_index('experiment_id').loc[value, 'model_name'])} · {value}",
+    format_func=lambda value: f"{experiment_display_name(experiments.set_index('experiment_id').loc[value])} · {MODEL_LABELS.get(experiments.set_index('experiment_id').loc[value, 'model_name'], experiments.set_index('experiment_id').loc[value, 'model_name'])} · {value}",
 )
 st.session_state["active_experiment_id"] = experiment_id
 experiment = get_experiment(experiment_id, DEFAULT_DB_PATH)

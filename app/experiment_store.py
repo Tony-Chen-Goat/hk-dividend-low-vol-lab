@@ -16,6 +16,8 @@ from .database import connect, initialize_database, read_table, upsert_rows
 
 _EXPERIMENT_FRAME_DEFAULTS = {
     "model_name": None,
+    "version_name": None,
+    "experiment_note": None,
     "universe_name": None,
     "data_start": None,
     "data_end": None,
@@ -43,7 +45,47 @@ def _normalize_experiment_frame(frame: pd.DataFrame) -> pd.DataFrame:
             result[column] = default
         elif default is not None:
             result[column] = result[column].fillna(default)
+    if not result.empty:
+        result["display_name"] = result.apply(experiment_display_name, axis=1)
     return result
+
+
+def experiment_display_name(record) -> str:
+    version_name = record.get("version_name") or record.get("name") or record.get("experiment_id") or "未命名实验"
+    note = str(record.get("experiment_note") or "").strip()
+    return f"{version_name}｜{note}" if note and note != version_name else str(version_name)
+
+
+def _local_date_label(created_at=None) -> str:
+    if created_at is None:
+        timestamp = pd.Timestamp.now(tz="Asia/Shanghai")
+    else:
+        timestamp = pd.to_datetime(created_at, errors="coerce")
+        if pd.isna(timestamp):
+            timestamp = pd.Timestamp.now(tz="Asia/Shanghai")
+        elif timestamp.tzinfo is None:
+            timestamp = timestamp.tz_localize("Asia/Shanghai")
+        else:
+            timestamp = timestamp.tz_convert("Asia/Shanghai")
+    return timestamp.strftime("%Y年%m月%d日")
+
+
+def next_experiment_version_name(path: str | Path = DEFAULT_DB_PATH, created_at=None) -> str:
+    initialize_database(path)
+    date_label = _local_date_label(created_at)
+    with connect(path) as conn:
+        rows = conn.execute(
+            "SELECT version_name FROM experiments WHERE version_name LIKE ?",
+            (f"{date_label}-第%版",),
+        ).fetchall()
+    sequences = []
+    for row in rows:
+        value = str(row[0] or "")
+        try:
+            sequences.append(int(value.split("-第", 1)[1].removesuffix("版")))
+        except (IndexError, ValueError):
+            continue
+    return f"{date_label}-第{max(sequences, default=0) + 1:03d}版"
 
 
 def experiment_score(
@@ -62,10 +104,26 @@ def save_experiment(payload: dict, path: str | Path = DEFAULT_DB_PATH) -> str:
     initialize_database(path)
     experiment_id = payload.get("experiment_id") or uuid.uuid4().hex[:12]
     metrics = payload.get("metrics", {})
+    created_at = payload.get("created_at") or datetime.now(timezone.utc).isoformat()
+    with connect(path) as conn:
+        existing = conn.execute(
+            "SELECT version_name, experiment_note, created_at FROM experiments WHERE experiment_id = ?",
+            (experiment_id,),
+        ).fetchone()
+    version_name = (
+        payload.get("version_name")
+        or (existing[0] if existing else None)
+        or next_experiment_version_name(path, created_at)
+    )
+    experiment_note = payload.get("experiment_note")
+    if experiment_note is None:
+        experiment_note = (existing[1] if existing else None) or payload.get("name")
     row = {
         "experiment_id": experiment_id,
-        "name": payload.get("name", experiment_id),
-        "created_at": payload.get("created_at") or datetime.now(timezone.utc).isoformat(),
+        "name": version_name,
+        "version_name": version_name,
+        "experiment_note": experiment_note,
+        "created_at": existing[2] if existing else created_at,
         "model_name": payload.get("model_name"),
         "universe_name": payload.get("universe_name"), "data_start": payload.get("data_start"),
         "data_end": payload.get("data_end"), "train_window": payload.get("train_window"),
@@ -112,6 +170,7 @@ def get_experiment(experiment_id: str, path: str | Path = DEFAULT_DB_PATH) -> di
     result = dict(row)
     for column in ["factor_weights_json", "group_weights_json", "metrics_json", "risk_settings_json", "backtest_settings_json"]:
         result[column.removesuffix("_json")] = json.loads(result.get(column) or "{}")
+    result["display_name"] = experiment_display_name(result)
     return result
 
 
@@ -123,7 +182,7 @@ def update_experiment(
     **fields,
 ) -> None:
     allowed = {
-        "name", "status", "portfolio_method", "selected_count",
+        "name", "version_name", "experiment_note", "status", "portfolio_method", "selected_count",
         "max_stock_weight", "max_sector_weight", "transaction_cost", "score",
         "coverage", "quality_note", "is_out_of_sample", "approved",
         "backtest_settings_json", "risk_settings_json",
@@ -308,7 +367,7 @@ def import_experiments_csv(frame: pd.DataFrame, path: str | Path = DEFAULT_DB_PA
         raise ValueError(f"实验 CSV 缺少列: {', '.join(sorted(missing))}")
     initialize_database(path)
     allowed = [
-        "experiment_id", "name", "created_at", "model_name", "universe_name", "data_start", "data_end", "train_window",
+        "experiment_id", "name", "version_name", "experiment_note", "created_at", "model_name", "universe_name", "data_start", "data_end", "train_window",
         "validation_window", "factor_weights_json", "group_weights_json", "portfolio_method", "selected_count",
         "max_stock_weight", "max_sector_weight", "transaction_cost", "metrics_json", "score", "coverage",
         "survivor_bias", "quality_note", "is_out_of_sample",

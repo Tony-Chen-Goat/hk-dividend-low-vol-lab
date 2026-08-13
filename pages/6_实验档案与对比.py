@@ -1,13 +1,19 @@
 from __future__ import annotations
 
-import json
-
-import pandas as pd
 import streamlit as st
 
-from app.config import DEFAULT_DB_PATH, FACTOR_LABELS, MODEL_LABELS
+from app.config import DEFAULT_DB_PATH, MODEL_LABELS
+from app.database import read_table
 from app.display import localized_csv, localized_frame
-from app.experiment_store import approve_experiment, export_experiment_bundle, get_experiment, list_experiments
+from app.experiment_comparison import (
+    common_period_curves,
+    common_period_figures,
+    comparison_analysis,
+    configuration_comparison,
+    core_metric_comparison,
+    factor_weight_comparison,
+)
+from app.experiment_store import approve_experiment, experiment_display_name, export_experiment_bundle, get_experiment, list_experiments
 from app.ui import empty_state, setup_page
 
 
@@ -41,7 +47,7 @@ else:
     selected = st.selectbox(
         "实验版本",
         experiments["experiment_id"].astype(str).tolist(),
-        format_func=lambda value: f"{experiments.set_index('experiment_id').loc[value, 'name']} · {value}",
+        format_func=lambda value: f"{experiment_display_name(experiments.set_index('experiment_id').loc[value])} · {value}",
     )
     selected_record = get_experiment(selected, DEFAULT_DB_PATH)
     st.json({
@@ -75,17 +81,63 @@ else:
     choices = experiments["experiment_id"].tolist()
     if len(choices) >= 2:
         left, right = st.columns(2)
-        a = left.selectbox("实验 A", choices, index=0)
-        b = right.selectbox("实验 B", choices, index=1)
-        row_a = experiments.set_index("experiment_id").loc[a]
-        row_b = experiments.set_index("experiment_id").loc[b]
-        weights_a = json.loads(row_a.get("factor_weights_json") or "{}")
-        weights_b = json.loads(row_b.get("factor_weights_json") or "{}")
-        comparison = pd.DataFrame({"实验 A": weights_a, "实验 B": weights_b}).fillna(0)
-        comparison["差异"] = comparison["实验 B"] - comparison["实验 A"]
-        comparison.index = [FACTOR_LABELS.get(index, index) for index in comparison.index]
-        st.dataframe(comparison.rename_axis("因子"), use_container_width=True)
+        format_version = lambda value: f"{experiment_display_name(experiments.set_index('experiment_id').loc[value])} · {value}"
+        a = left.selectbox("实验 A", choices, index=0, format_func=format_version)
+        b = right.selectbox("实验 B", choices, index=1, format_func=format_version)
+        if a == b:
+            st.warning("请选择两个不同的实验版本进行比较。")
+        else:
+            record_a, record_b = get_experiment(str(a), DEFAULT_DB_PATH), get_experiment(str(b), DEFAULT_DB_PATH)
+            st.caption(f"实验A：{record_a['display_name']}　｜　实验B：{record_b['display_name']}")
+
+            core_display, core_raw = core_metric_comparison(record_a, record_b)
+            st.markdown("##### 核心研究指标")
+            st.dataframe(core_display, use_container_width=True, hide_index=True)
+
+            config_display, config_raw = configuration_comparison(record_a, record_b)
+            weight_display, weight_raw = factor_weight_comparison(record_a, record_b)
+            config_tab, weight_tab = st.tabs(["组合与回测配置", "因子权重差异"])
+            with config_tab:
+                st.dataframe(config_display, use_container_width=True, hide_index=True)
+            with weight_tab:
+                st.dataframe(
+                    weight_display,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "实验A": st.column_config.NumberColumn(format="percent"),
+                        "实验B": st.column_config.NumberColumn(format="percent"),
+                        "差异（B-A）": st.column_config.NumberColumn(format="percent"),
+                    },
+                )
+
+            backtests = read_table("backtest_monthly", DEFAULT_DB_PATH)
+            curves = common_period_curves(backtests, str(a), str(b))
+            st.markdown("##### 共同回测区间的净值与回撤")
+            if curves.empty:
+                st.info("两组实验没有足够的共同回测月份，暂时不能生成公平区间曲线。")
+            else:
+                net_figure, drawdown_figure = common_period_figures(curves)
+                chart_left, chart_right = st.columns(2)
+                chart_left.plotly_chart(net_figure, use_container_width=True)
+                chart_right.plotly_chart(drawdown_figure, use_container_width=True)
+
+            analysis = comparison_analysis(core_raw, curves)
+            st.markdown("##### 选股实验分析与结论")
+            st.info(f"{analysis['status']}：{analysis['summary']}")
+            for detail in analysis["details"]:
+                st.write(f"- {detail}")
+
+            comparison_export = pd.concat([core_raw, config_raw, weight_raw], ignore_index=True, sort=False)
+            comparison_export["experiment_a_id"] = str(a)
+            comparison_export["experiment_b_id"] = str(b)
+            st.download_button(
+                "下载两组实验完整对比CSV",
+                comparison_export.to_csv(index=False).encode("utf-8-sig"),
+                f"experiment_comparison_{a}_{b}.csv",
+                "text/csv",
+            )
     else:
-        st.info("至少保存两组实验后可比较因子权重差异。")
+        st.info("至少保存两组实验后可进行完整对比。")
 
 st.caption("完整实验请优先使用ZIP和SQLite备份留档。仅导入实验汇总CSV不会恢复月度因子、Rank IC、回测或持仓明细，因此不能直接批准为正式实验。")

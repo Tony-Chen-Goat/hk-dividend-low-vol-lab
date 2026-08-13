@@ -11,6 +11,7 @@ from app.experiment_store import (
     export_experiment_bundle,
     get_experiment,
     list_experiments,
+    next_experiment_version_name,
     save_experiment,
     store_backtest_results,
     store_rank_ic_results,
@@ -19,6 +20,31 @@ from app.experiment_store import (
 
 def test_experiment_score_formula():
     assert abs(experiment_score(1.0, 0.5, 0.2, 0.3) - 1.09) < 1e-12
+
+
+def test_experiment_versions_use_local_date_sequence_and_keep_notes(tmp_path):
+    path = tmp_path / "versions.sqlite3"
+    first = save_experiment({
+        "experiment_id": "E1",
+        "name": "默认权重",
+        "created_at": "2026-08-13T01:00:00+00:00",
+        "model_name": "yahoo_10",
+    }, path)
+    second = save_experiment({
+        "experiment_id": "E2",
+        "name": "低波加强",
+        "created_at": "2026-08-13T02:00:00+00:00",
+        "model_name": "yahoo_10",
+    }, path)
+
+    first_record = get_experiment(first, path)
+    second_record = get_experiment(second, path)
+
+    assert first_record["version_name"] == "2026年08月13日-第001版"
+    assert second_record["version_name"] == "2026年08月13日-第002版"
+    assert first_record["experiment_note"] == "默认权重"
+    assert second_record["display_name"] == "2026年08月13日-第002版｜低波加强"
+    assert next_experiment_version_name(path, "2026-08-13T03:00:00+00:00") == "2026年08月13日-第003版"
 
 
 def test_manual_experiment_workflow_can_be_archived_and_approved(tmp_path):

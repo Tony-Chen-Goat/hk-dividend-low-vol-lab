@@ -11,7 +11,7 @@ from app.benchmarks import add_benchmark_curves
 from app.config import BENCHMARKS, DEFAULT_DB_PATH, MODEL_LABELS, RISK_DEFAULTS
 from app.database import read_table
 from app.display import localized_frame
-from app.experiment_store import experiment_score, get_experiment, store_backtest_results
+from app.experiment_store import experiment_display_name, experiment_score, get_experiment, store_backtest_results
 from app.monthly_details import monthly_rebalance_details
 from app.monthly_chart import equity_curve_chart, selected_month_from_chart_event
 from app.research_pipeline import available_experiments, backtest_from_panel, load_feature_panel
@@ -68,7 +68,7 @@ experiment_id = st.selectbox(
     "选择实验版本",
     experiment_options,
     index=index,
-    format_func=lambda value: f"{experiments.set_index('experiment_id').loc[value, 'name']} · {MODEL_LABELS.get(experiments.set_index('experiment_id').loc[value, 'model_name'], experiments.set_index('experiment_id').loc[value, 'model_name'])} · {value}",
+    format_func=lambda value: f"{experiment_display_name(experiments.set_index('experiment_id').loc[value])} · {MODEL_LABELS.get(experiments.set_index('experiment_id').loc[value, 'model_name'], experiments.set_index('experiment_id').loc[value, 'model_name'])} · {value}",
 )
 st.session_state["active_experiment_id"] = experiment_id
 experiment = get_experiment(experiment_id, DEFAULT_DB_PATH)
