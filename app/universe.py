@@ -13,6 +13,21 @@ from .yahoo_provider import normalize_hk_symbol
 EXCLUDED_TYPES = {"ETF", "REIT", "SPAC", "WARRANT", "CBBC", "PREFERRED STOCK", "STRUCTURED PRODUCT"}
 
 
+def default_filter_settings(model_name: str = "yahoo_10") -> dict:
+    return {
+        "main_board_only": True,
+        "exclude_gem": True,
+        "allow_reit": True,
+        "min_price_hkd": RISK_DEFAULTS["min_price_hkd"],
+        "min_listing_days": RISK_DEFAULTS["min_listing_days"],
+        "min_valid_trading_ratio_60d": RISK_DEFAULTS["min_valid_trading_ratio_60d"],
+        "max_suspension_days": RISK_DEFAULTS["max_suspension_days"],
+        "min_avg_traded_value_20d": RISK_DEFAULTS["min_avg_traded_value_20d"],
+        "min_free_float_market_cap": RISK_DEFAULTS["min_free_float_market_cap"],
+        "require_free_float_market_cap": model_name == "full_13",
+    }
+
+
 def validate_universe_csv(frame: pd.DataFrame) -> pd.DataFrame:
     missing = [column for column in UNIVERSE_COLUMNS if column not in frame.columns]
     if missing:
@@ -124,3 +139,22 @@ def build_risk_snapshot(prices: pd.DataFrame, securities: pd.DataFrame, fundamen
     else:
         result["free_float_market_cap"] = np.nan
     return result
+
+
+def build_risk_snapshot_at_date(
+    prices: pd.DataFrame,
+    securities: pd.DataFrame,
+    as_of,
+    fundamentals: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    cutoff = pd.Timestamp(as_of)
+    price_history = prices[pd.to_datetime(prices["trade_date"], errors="coerce") <= cutoff].copy()
+    effective = pd.to_datetime(securities.get("effective_date"), errors="coerce")
+    ended = pd.to_datetime(securities.get("end_date"), errors="coerce")
+    has_historical_membership = effective.notna().any() and ended.notna().any()
+    security_snapshot = universe_at_date(securities, cutoff) if has_historical_membership else securities.copy()
+    fundamental_history = fundamentals
+    if fundamentals is not None and not fundamentals.empty:
+        published = pd.to_datetime(fundamentals["published_date"], errors="coerce")
+        fundamental_history = fundamentals[published <= cutoff].copy()
+    return build_risk_snapshot(price_history, security_snapshot, fundamental_history)

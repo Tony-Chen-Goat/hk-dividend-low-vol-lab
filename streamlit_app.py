@@ -15,7 +15,7 @@ experiments = list_experiments(DEFAULT_DB_PATH)
 features = read_table("monthly_features", DEFAULT_DB_PATH)
 
 st.markdown("#### 以时间序列纪律为核心的港股红利低波研究工作台")
-st.write("按月末构建可用证券池，计算红利、低波、质量、流动性与规模因子，并使用下一月收益进行 Rank IC 与组合验证。Yahoo 基础10因子、完整13因子和文章方案一基准在全站保持独立；最后可将风险合格池与因子精选池取交集并进行人工复核。")
+st.write("按月末先执行风险过滤，再计算红利、低波、质量、流动性与规模因子，并使用下一月收益进行 Rank IC 与组合验证。每次手动权重实验通过独立编号保存，完成比较并批准一套正式实验后生成最新选股与人工复核清单。")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("证券池", f"{counts['security_master']:,}")
@@ -31,14 +31,14 @@ left, right = st.columns([1.35, 1])
 with left:
     st.markdown("#### 当前最佳样本外实验")
     if experiments.empty:
-        empty_state("尚未保存样本外实验。完成数据更新、因子计算和回测后，可在参数调优页保存实验。")
+        empty_state("尚未保存完整实验。请在因子实验室创建实验，再完成Rank IC和月度组合回测。")
     else:
-        best = experiments[experiments["is_out_of_sample"] == 1].head(1)
+        best = experiments[experiments["status"] == "completed"].head(1)
         if best.empty:
-            empty_state("当前只有样本内实验，不能作为最终排名依据。")
+            empty_state("当前实验尚未完成月度组合回测。")
         else:
             row = best.iloc[0]
-            st.markdown('<span class="oos-tag">样本外 OOS</span>', unsafe_allow_html=True)
+            st.markdown('<span class="oos-tag">历史研究表现</span>', unsafe_allow_html=True)
             st.subheader(row["name"])
             a, b, c = st.columns(3)
             a.metric("综合得分", f"{row['score']:.3f}" if pd.notna(row["score"]) else "—")

@@ -7,11 +7,13 @@ import numpy as np
 import pandas as pd
 
 from .backtest import calculate_forward_returns, run_monthly_backtest
-from .config import DEFAULT_DB_PATH, FACTOR_WEIGHTS, MODEL_FACTOR_WEIGHTS, MODEL_FULL_13
+from .config import DEFAULT_DB_PATH, FACTOR_WEIGHTS, MODEL_FACTOR_GROUPS, MODEL_FACTOR_WEIGHTS, MODEL_FULL_13
 from .database import connect, initialize_database, read_table, upsert_rows
+from .experiment_store import save_experiment
 from .factors import calculate_monthly_features
 from .portfolio import build_article_baseline, build_enhanced_portfolio
 from .scoring import score_cross_section
+from .universe import apply_hk_risk_filters, build_risk_snapshot_at_date, default_filter_settings
 
 
 def available_month_ends(prices: pd.DataFrame, minimum_history_days: int = 252) -> list[pd.Timestamp]:
@@ -29,6 +31,9 @@ def compute_and_store_features(
     weights: dict[str, float] | None = None,
     progress=None,
     model_name: str = MODEL_FULL_13,
+    experiment_id: str | None = None,
+    experiment_name: str | None = None,
+    risk_settings: dict | None = None,
 ) -> pd.DataFrame:
     initialize_database(path)
     prices = read_table("daily_prices", path)
@@ -45,10 +50,64 @@ def compute_and_store_features(
     if prices.empty:
         return pd.DataFrame()
     active_weights = weights or dict(MODEL_FACTOR_WEIGHTS[model_name])
-    rows, stored = [], []
+    active_risk_settings = {**default_filter_settings(model_name), **(risk_settings or {})}
+    experiment_id = save_experiment(
+        {
+            "experiment_id": experiment_id,
+            "name": experiment_name or "手动因子实验",
+            "model_name": model_name,
+            "universe_name": "风险过滤后的导入证券池",
+            "data_start": str(pd.to_datetime(prices["trade_date"]).min().date()),
+            "data_end": str(pd.to_datetime(prices["trade_date"]).max().date()),
+            "factor_weights": active_weights,
+            "group_weights": {
+                group: sum(active_weights[factor] for factor in factors)
+                for group, factors in MODEL_FACTOR_GROUPS[model_name].items()
+            },
+            "risk_settings": active_risk_settings,
+            "coverage": None,
+            "survivor_bias": True,
+            "quality_note": "使用当前导入证券池回溯历史，仍可能存在幸存者偏差；每月风险过滤仅使用当时及以前的数据。",
+            "is_out_of_sample": False,
+            "status": "calculating",
+        },
+        path,
+    )
+    rows, stored, universe_rows = [], [], []
     months = available_month_ends(prices)
+    forward = calculate_forward_returns(prices)
+    forward_lookup = {
+        (str(row.symbol), pd.Timestamp(row.month_end)): row
+        for row in forward.itertuples()
+    }
     for index, month in enumerate(months, start=1):
-        raw = calculate_monthly_features(prices, dividends, fundamentals, month)
+        risk_snapshot = build_risk_snapshot_at_date(
+            prices,
+            securities,
+            month,
+            fundamentals,
+        )
+        filtered = apply_hk_risk_filters(risk_snapshot, active_risk_settings)
+        for row in pd.concat([filtered.included, filtered.excluded], ignore_index=True).to_dict("records"):
+            universe_rows.append({
+                "experiment_id": experiment_id,
+                "month_end": pd.Timestamp(month).date().isoformat(),
+                "symbol": row["symbol"],
+                "included": int(bool(row.get("included"))),
+                "exclusion_reasons": row.get("exclusion_reasons"),
+                "source": "point_in_time_risk_filter",
+            })
+        allowed_symbols = set(filtered.included["symbol"].astype(str)) if not filtered.included.empty else set()
+        if not allowed_symbols:
+            if progress:
+                progress(index, len(months), month)
+            continue
+        raw = calculate_monthly_features(
+            prices[prices["symbol"].isin(allowed_symbols)],
+            dividends[dividends["symbol"].isin(allowed_symbols)] if not dividends.empty else dividends,
+            fundamentals[fundamentals["symbol"].isin(allowed_symbols)] if not fundamentals.empty else fundamentals,
+            month,
+        )
         if raw.empty:
             continue
         if not securities.empty:
@@ -57,21 +116,23 @@ def compute_and_store_features(
         scored["model_name"] = model_name
         rows.append(scored)
         for _, row in scored.iterrows():
+            forward_row = forward_lookup.get((str(row["symbol"]), pd.Timestamp(month)))
             raw_values = {factor: _json_value(row.get(factor)) for factor in FACTOR_WEIGHTS}
             wins = {factor: _json_value(row.get(f"{factor}__winsorized")) for factor in FACTOR_WEIGHTS}
             scores = {factor: _json_value(row.get(f"{factor}__score")) for factor in FACTOR_WEIGHTS}
             contributions = {factor: _json_value(row.get(f"{factor}__contribution")) for factor in FACTOR_WEIGHTS}
             stored.append({
-                "model_name": model_name,
+                "experiment_id": experiment_id, "model_name": model_name,
                 "month_end": pd.Timestamp(month).date().isoformat(), "symbol": row["symbol"],
                 "raw_json": json.dumps(raw_values, ensure_ascii=False), "winsorized_json": json.dumps(wins, ensure_ascii=False),
                 "score_json": json.dumps(scores, ensure_ascii=False), "contribution_json": json.dumps(contributions, ensure_ascii=False),
                 "model_score": _json_value(row.get("model_score")), "coverage": _json_value(row.get("factor_coverage")),
                 "quality_flag": row.get("quality_flag"),
+                "next_month_end": pd.Timestamp(forward_row.next_month_end).date().isoformat() if forward_row is not None and pd.notna(forward_row.next_month_end) else None,
+                "forward_return": _json_value(forward_row.forward_return) if forward_row is not None else None,
             })
         if progress:
             progress(index, len(months), month)
-    forward = calculate_forward_returns(prices)
     forward_rows = [
         {"month_end": pd.Timestamp(row.month_end).date().isoformat(), "symbol": row.symbol,
          "next_month_end": pd.Timestamp(row.next_month_end).date().isoformat() if pd.notna(row.next_month_end) else None,
@@ -79,43 +140,80 @@ def compute_and_store_features(
         for row in forward.itertuples()
     ]
     with connect(path) as conn:
+        conn.execute("DELETE FROM monthly_features WHERE experiment_id = ?", (experiment_id,))
+        conn.execute("DELETE FROM experiment_universe WHERE experiment_id = ?", (experiment_id,))
         upsert_rows(conn, "monthly_features", stored)
+        upsert_rows(conn, "experiment_universe", universe_rows)
         upsert_rows(conn, "forward_returns", forward_rows)
+        conn.execute(
+            "UPDATE experiments SET status = 'features_ready', coverage = ? WHERE experiment_id = ?",
+            (
+                float(np.mean([row.get("coverage") for row in stored if row.get("coverage") is not None])) if stored else None,
+                experiment_id,
+            ),
+        )
     if not rows:
         return pd.DataFrame()
     result = pd.concat(rows, ignore_index=True)
+    result["experiment_id"] = experiment_id
     return result.merge(forward, on=["symbol", "month_end"], how="left")
 
 
+def available_experiments(path: str | Path = DEFAULT_DB_PATH) -> pd.DataFrame:
+    initialize_database(path)
+    with connect(path) as conn:
+        return pd.read_sql_query(
+            """
+            SELECT e.*
+            FROM experiments e
+            WHERE EXISTS (
+              SELECT 1 FROM monthly_features f
+              WHERE f.experiment_id = e.experiment_id
+            )
+            ORDER BY e.created_at DESC
+            """,
+            conn,
+        )
+
+
 def available_feature_models(path: str | Path = DEFAULT_DB_PATH) -> list[str]:
-    features = read_table("monthly_features", path)
-    if features.empty or "model_name" not in features:
+    experiments = available_experiments(path)
+    if experiments.empty:
         return []
-    available = set(features["model_name"].dropna().astype(str))
+    available = set(experiments["model_name"].dropna().astype(str))
     return [name for name in MODEL_FACTOR_WEIGHTS if name in available]
 
 
 def load_feature_panel(
     path: str | Path = DEFAULT_DB_PATH,
     model_name: str = MODEL_FULL_13,
+    experiment_id: str | None = None,
 ) -> pd.DataFrame:
     features = read_table("monthly_features", path)
-    forward = read_table("forward_returns", path)
     securities = read_table("security_master", path)
     if features.empty:
         return features
-    features = features[features["model_name"] == model_name].copy()
+    if experiment_id is None:
+        experiments = available_experiments(path)
+        matching = experiments[experiments["model_name"] == model_name]
+        if matching.empty:
+            return pd.DataFrame()
+        experiment_id = str(matching.iloc[0]["experiment_id"])
+    features = features[features["experiment_id"] == experiment_id].copy()
     if features.empty:
         return features
     expanded = []
     for row in features.itertuples(index=False):
         payload = {
             "model_name": row.model_name,
+            "experiment_id": row.experiment_id,
             "month_end": pd.Timestamp(row.month_end),
             "symbol": row.symbol,
             "model_score": row.model_score,
             "factor_coverage": row.coverage,
             "quality_flag": row.quality_flag,
+            "forward_return": row.forward_return,
+            "next_month_end": row.next_month_end,
         }
         payload.update(json.loads(row.raw_json or "{}"))
         scores = json.loads(row.score_json or "{}")
@@ -124,9 +222,6 @@ def load_feature_panel(
     panel = pd.DataFrame(expanded)
     if not securities.empty:
         panel = panel.merge(securities[["symbol", "name", "sector"]], on="symbol", how="left")
-    if not forward.empty:
-        forward["month_end"] = pd.to_datetime(forward["month_end"])
-        panel = panel.merge(forward[["symbol", "month_end", "forward_return", "next_month_end"]], on=["symbol", "month_end"], how="left")
     return panel
 
 

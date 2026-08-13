@@ -11,36 +11,53 @@ from app.charts import equity_curve_chart
 from app.config import BENCHMARKS, DEFAULT_DB_PATH, MODEL_LABELS, RISK_DEFAULTS
 from app.database import read_table
 from app.display import localized_frame
-from app.research_pipeline import available_feature_models, backtest_from_panel, load_feature_panel
+from app.experiment_store import experiment_score, get_experiment, store_backtest_results
+from app.research_pipeline import available_experiments, backtest_from_panel, load_feature_panel
 from app.ui import empty_state, setup_page
 
 
 setup_page("月度组合回测", "📈")
-available_models = available_feature_models(DEFAULT_DB_PATH)
-if not available_models:
+experiments = available_experiments(DEFAULT_DB_PATH)
+if experiments.empty:
     empty_state("尚无月度因子面板。请先在因子实验室执行计算。")
     st.stop()
-model_name = st.selectbox(
-    "因子模式",
-    available_models,
-    format_func=MODEL_LABELS.get,
+experiment_options = experiments["experiment_id"].astype(str).tolist()
+preferred = st.session_state.get("active_experiment_id")
+index = experiment_options.index(preferred) if preferred in experiment_options else 0
+experiment_id = st.selectbox(
+    "选择实验版本",
+    experiment_options,
+    index=index,
+    format_func=lambda value: f"{experiments.set_index('experiment_id').loc[value, 'name']} · {MODEL_LABELS.get(experiments.set_index('experiment_id').loc[value, 'model_name'], experiments.set_index('experiment_id').loc[value, 'model_name'])} · {value}",
 )
-panel = load_feature_panel(DEFAULT_DB_PATH, model_name)
+st.session_state["active_experiment_id"] = experiment_id
+experiment = get_experiment(experiment_id, DEFAULT_DB_PATH)
+model_name = experiment["model_name"]
+panel = load_feature_panel(DEFAULT_DB_PATH, model_name, experiment_id)
 if panel.empty:
     empty_state("尚无月度因子面板。请先在因子实验室执行计算。")
     st.stop()
 
 st.info("本页执行动态月度调仓：每个月末只使用当时已知的因子综合得分重新排名并选择前N只；Rank IC仅用于验证排名质量，不参与当月选股，也不会使用下一月收益决定持仓。")
+locked = bool(experiment.get("approved"))
+saved_backtest = experiment.get("backtest_settings") or {}
+if locked:
+    st.success("这是已经批准的正式实验。回测设置已锁定；如需调整，请回到因子实验室创建新的实验版本。")
+if "rank_icir" not in (experiment.get("metrics") or {}):
+    st.warning("该实验尚未完成Rank IC测试。建议先到“Rank IC测试”选择同一实验编号；当前仍可回测，但实验综合比较将缺少Rank IC依据。")
 controls = st.columns(5)
-mode = controls[0].selectbox("组合模型", ["因子增强模型", "文章方案一基准"])
-top_n = controls[1].slider("每月入选数量", 3, 15, 10)
-backtest_start = controls[2].date_input("回测开始日期", value=date(2016, 1, 1))
-cost = controls[3].number_input("单边交易成本", 0.0, 0.02, 0.001, 0.0001, format="%.4f")
-max_stock = controls[4].slider("单股上限", 0.01, 0.20, RISK_DEFAULTS["max_stock_weight"], 0.01)
+mode_options = ["因子增强模型", "文章方案一基准"]
+saved_mode = "文章方案一基准" if saved_backtest.get("portfolio_method") == "article" else "因子增强模型"
+mode = controls[0].selectbox("组合模型", mode_options, index=mode_options.index(saved_mode), disabled=locked)
+top_n = controls[1].slider("每月入选数量", 3, 15, int(saved_backtest.get("selected_count", 10)), disabled=locked)
+saved_start = pd.to_datetime(saved_backtest.get("backtest_start"), errors="coerce")
+backtest_start = controls[2].date_input("回测开始日期", value=saved_start.date() if pd.notna(saved_start) else date(2016, 1, 1), disabled=locked)
+cost = controls[3].number_input("单边交易成本", 0.0, 0.02, float(saved_backtest.get("transaction_cost", 0.001)), 0.0001, format="%.4f", disabled=locked)
+max_stock = controls[4].slider("单股上限", 0.01, 0.20, float(saved_backtest.get("max_stock_weight", RISK_DEFAULTS["max_stock_weight"])), 0.01, disabled=locked)
 
 mix_cols = st.columns(2)
-dividend_pct = mix_cols[0].number_input("股息率配置比例（%）", 0, 100, 50, 5, disabled=mode == "文章方案一基准")
-inverse_vol_pct = mix_cols[1].number_input("逆波动率配置比例（%）", 0, 100, 50, 5, disabled=mode == "文章方案一基准")
+dividend_pct = mix_cols[0].number_input("股息率配置比例（%）", 0, 100, int(saved_backtest.get("dividend_pct", 50)), 5, disabled=locked or mode == "文章方案一基准")
+inverse_vol_pct = mix_cols[1].number_input("逆波动率配置比例（%）", 0, 100, int(saved_backtest.get("inverse_volatility_pct", 50)), 5, disabled=locked or mode == "文章方案一基准")
 if mode == "因子增强模型" and dividend_pct + inverse_vol_pct != 100:
     st.error(f"两项资金配置比例必须合计100%，当前为 {dividend_pct + inverse_vol_pct}%。")
     st.stop()
@@ -95,9 +112,38 @@ if not prices.empty:
             if benchmark_return is None:
                 benchmark_return = monthly[f"{benchmark_name}_return"]
 metrics = performance_metrics(monthly, benchmark_return)
+rank_icir = experiment.get("metrics", {}).get("rank_icir")
+information_ratio = metrics.get("information_ratio")
+score = experiment_score(
+    0.0 if pd.isna(rank_icir) else float(rank_icir),
+    0.0 if pd.isna(information_ratio) else float(information_ratio),
+    metrics.get("max_drawdown", 0.0),
+    metrics.get("average_turnover", 0.0),
+)
+backtest_settings = {
+    "backtest_start": str(backtest_start),
+    "selected_count": int(top_n),
+    "portfolio_method": "blend" if mode == "因子增强模型" else "article",
+    "dividend_pct": int(dividend_pct),
+    "inverse_volatility_pct": int(inverse_vol_pct),
+    "max_stock_weight": float(max_stock),
+    "max_sector_weight": float(RISK_DEFAULTS["max_sector_weight"]),
+    "transaction_cost": float(cost),
+}
+if not locked:
+    store_backtest_results(
+        experiment_id,
+        monthly,
+        holdings,
+        metrics,
+        backtest_settings,
+        score,
+        DEFAULT_DB_PATH,
+    )
 actual_start = pd.to_datetime(monthly["month_end"]).min()
 actual_end = pd.to_datetime(monthly["month_end"]).max()
-st.caption(f"实际回测信号区间：{actual_start.date().isoformat()} 至 {actual_end.date().isoformat()}；每月动态选择因子综合得分前 {top_n} 名。")
+save_note = "正式实验仅只读展示，未重写归档结果" if locked else "结果已保存到同一实验档案"
+st.caption(f"实验编号：{experiment_id}。实际回测信号区间：{actual_start.date().isoformat()} 至 {actual_end.date().isoformat()}；每月动态选择因子综合得分前 {top_n} 名。{save_note}。")
 st.markdown('<span class="oos-tag">结果需按样本内 / 样本外窗口分别评估</span>', unsafe_allow_html=True)
 cols = st.columns(6)
 for column, (label, key, fmt) in zip(cols, [
