@@ -33,7 +33,8 @@ with left:
     if experiments.empty:
         empty_state("尚未保存完整实验。请在因子实验室创建实验，再完成Rank IC和月度组合回测。")
     else:
-        best = experiments[experiments["status"] == "completed"].head(1)
+        status = experiments.get("status", pd.Series("", index=experiments.index))
+        best = experiments[status.fillna("").eq("completed")].head(1)
         if best.empty:
             empty_state("当前实验尚未完成月度组合回测。")
         else:

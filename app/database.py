@@ -208,6 +208,19 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     }.items():
         if column not in experiment_columns:
             conn.execute(f"ALTER TABLE experiments ADD COLUMN {column} {definition}")
+    conn.execute(
+        "UPDATE experiments SET status = 'features_ready' "
+        "WHERE status IS NULL OR TRIM(status) = ''"
+    )
+    conn.execute("UPDATE experiments SET approved = 0 WHERE approved IS NULL")
+    conn.execute(
+        "UPDATE experiments SET risk_settings_json = '{}' "
+        "WHERE risk_settings_json IS NULL"
+    )
+    conn.execute(
+        "UPDATE experiments SET backtest_settings_json = '{}' "
+        "WHERE backtest_settings_json IS NULL"
+    )
     for experiment_id, model_name in legacy_experiments:
         conn.execute(
             """

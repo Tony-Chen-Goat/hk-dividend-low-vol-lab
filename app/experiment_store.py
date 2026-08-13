@@ -14,6 +14,38 @@ from .config import DEFAULT_DB_PATH
 from .database import connect, initialize_database, read_table, upsert_rows
 
 
+_EXPERIMENT_FRAME_DEFAULTS = {
+    "model_name": None,
+    "universe_name": None,
+    "data_start": None,
+    "data_end": None,
+    "train_window": None,
+    "validation_window": None,
+    "portfolio_method": None,
+    "selected_count": None,
+    "max_stock_weight": None,
+    "max_sector_weight": None,
+    "transaction_cost": None,
+    "score": None,
+    "coverage": None,
+    "status": "features_ready",
+    "risk_settings_json": "{}",
+    "backtest_settings_json": "{}",
+    "approved": 0,
+}
+
+
+def _normalize_experiment_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Keep pages usable while a legacy Cloud SQLite schema is being migrated."""
+    result = frame.copy()
+    for column, default in _EXPERIMENT_FRAME_DEFAULTS.items():
+        if column not in result.columns:
+            result[column] = default
+        elif default is not None:
+            result[column] = result[column].fillna(default)
+    return result
+
+
 def experiment_score(
     rank_icir: float,
     information_ratio: float,
@@ -60,6 +92,7 @@ def list_experiments(path: str | Path = DEFAULT_DB_PATH) -> pd.DataFrame:
     initialize_database(path)
     with connect(path) as conn:
         frame = pd.read_sql_query("SELECT * FROM experiments ORDER BY score DESC, created_at DESC", conn)
+    frame = _normalize_experiment_frame(frame)
     if not frame.empty:
         metrics = frame["metrics_json"].apply(lambda value: json.loads(value or "{}"))
         for key in sorted({key for item in metrics for key in item}):

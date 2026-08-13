@@ -10,6 +10,7 @@ from app.experiment_store import (
     experiment_score,
     export_experiment_bundle,
     get_experiment,
+    list_experiments,
     save_experiment,
     store_backtest_results,
     store_rank_ic_results,
@@ -161,3 +162,32 @@ def test_previous_schema_migrates_without_new_experiment_columns(tmp_path):
     assert feature["experiment_id"] == "legacy-yahoo_10"
     assert feature["forward_return"] == 0.02
     assert experiment["status"] == "features_ready"
+
+
+def test_experiment_list_tolerates_legacy_cloud_schema_before_migration(tmp_path, monkeypatch):
+    path = tmp_path / "legacy-cloud.sqlite3"
+    with connect(path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE experiments (
+              experiment_id TEXT PRIMARY KEY, name TEXT NOT NULL,
+              created_at TEXT NOT NULL, model_name TEXT,
+              factor_weights_json TEXT, group_weights_json TEXT,
+              metrics_json TEXT, score REAL
+            );
+            INSERT INTO experiments (
+              experiment_id, name, created_at, model_name,
+              factor_weights_json, group_weights_json, metrics_json, score
+            ) VALUES (
+              'legacy-1', 'Legacy experiment', '2026-08-01', 'yahoo_10',
+              '{}', '{}', '{}', 0.1
+            );
+            """
+        )
+    monkeypatch.setattr("app.experiment_store.initialize_database", lambda _: None)
+
+    experiments = list_experiments(path)
+
+    assert experiments.loc[0, "status"] == "features_ready"
+    assert experiments.loc[0, "approved"] == 0
+    assert experiments.loc[0, "risk_settings_json"] == "{}"
