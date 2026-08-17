@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
 from app.config import DEFAULT_DB_PATH, MODEL_LABELS

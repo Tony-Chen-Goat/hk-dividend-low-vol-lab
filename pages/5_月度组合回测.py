@@ -13,7 +13,13 @@ from app.database import load_setting, minimum_stock_trade_date, read_table
 from app.display import localized_frame
 from app.experiment_store import experiment_display_name, experiment_score, get_experiment, store_backtest_results
 from app.monthly_details import monthly_rebalance_details
-from app.monthly_chart import equity_curve_chart, selected_month_from_chart_event
+from app.monthly_chart import (
+    available_chart_months,
+    default_chart_window,
+    equity_curve_chart,
+    filter_chart_window,
+    selected_month_from_chart_event,
+)
 from app.research_pipeline import available_experiments, backtest_from_panel, load_feature_panel
 from app.ui import empty_state, setup_page
 
@@ -233,21 +239,71 @@ for column, (label, key, fmt) in zip(cols, [
     value = metrics[key]
     column.metric(label, format(value, fmt) if pd.notna(value) else "—")
 st.markdown("#### 动态月度调仓净值")
+month_options = available_chart_months(monthly)
+if not month_options:
+    st.warning("已保存回测中没有可识别的真实月份，暂时无法绘制净值曲线。请重新运行并保存月度组合回测。")
+    st.stop()
+range_columns = st.columns([1.1, 1, 1])
+range_preset = range_columns[0].selectbox(
+    "快捷显示范围",
+    ["默认近10年", "近5年", "近3年", "全部真实数据", "自选时间段"],
+    help="快捷范围只设置起止年月的初始值；右侧仍可继续自选。",
+)
+years_by_preset = {
+    "默认近10年": 10,
+    "近5年": 5,
+    "近3年": 3,
+    "全部真实数据": None,
+    "自选时间段": 10,
+}
+suggested_start, suggested_end = default_chart_window(
+    monthly,
+    years=years_by_preset[range_preset],
+)
+start_index = month_options.index(suggested_start) if suggested_start in month_options else 0
+end_index = month_options.index(suggested_end) if suggested_end in month_options else len(month_options) - 1
+month_label = lambda value: pd.Period(value, freq="M").strftime("%Y年%m月")
+start_month = range_columns[1].selectbox(
+    "起始年月",
+    month_options,
+    index=start_index,
+    format_func=month_label,
+    key=f"chart_start_month_{experiment_id}_{range_preset}",
+)
+end_month = range_columns[2].selectbox(
+    "终止年月",
+    month_options,
+    index=end_index,
+    format_func=month_label,
+    key=f"chart_end_month_{experiment_id}_{range_preset}",
+)
+if pd.Period(start_month, freq="M") > pd.Period(end_month, freq="M"):
+    st.error("起始年月不能晚于终止年月，请重新选择。")
+    chart_monthly = monthly.iloc[0:0].copy()
+else:
+    chart_monthly = filter_chart_window(monthly, start_month, end_month)
+
 curve_columns = [
     "month_end", "net_value", "gross_value",
     *[f"{benchmark_name}_value" for benchmark_name in BENCHMARKS],
 ]
-chart_event = st.plotly_chart(
-    equity_curve_chart(monthly[[column for column in curve_columns if column in monthly]]),
-    use_container_width=True,
-    key=f"monthly_equity_curve_{experiment_id}",
-    on_select="rerun",
-    selection_mode="points",
-)
-st.caption("横轴按年显示，短刻度代表月份。点击扣费后组合净值曲线上的绿色圆点，可查看该月交易记录与持仓情况。基准指数缺失月份保持为空，不按零收益补齐。")
-selected_month = selected_month_from_chart_event(chart_event)
-if selected_month is not None:
-    show_monthly_rebalance_dialog(selected_month, monthly, holdings)
+if chart_monthly.empty:
+    st.info("所选年月范围内没有真实回测数据。")
+else:
+    actual_chart_start = pd.to_datetime(chart_monthly["month_end"]).min().strftime("%Y年%m月")
+    actual_chart_end = pd.to_datetime(chart_monthly["month_end"]).max().strftime("%Y年%m月")
+    st.caption(f"当前图表区间：{actual_chart_start} 至 {actual_chart_end}，共 {len(chart_monthly)} 个真实月度观测。累计净值保持原回测基准，不因截取区间而重新归一化。")
+    chart_event = st.plotly_chart(
+        equity_curve_chart(chart_monthly[[column for column in curve_columns if column in chart_monthly]]),
+        use_container_width=True,
+        key=f"monthly_equity_curve_{experiment_id}_{start_month}_{end_month}",
+        on_select="rerun",
+        selection_mode="points",
+    )
+    st.caption("横轴按年显示，短刻度代表月份。点击扣费后组合净值曲线上的绿色圆点，可查看该月交易记录与持仓情况。基准指数缺失月份保持为空，不按零收益补齐。")
+    selected_month = selected_month_from_chart_event(chart_event)
+    if selected_month is not None:
+        show_monthly_rebalance_dialog(selected_month, monthly, holdings)
 analysis = backtest_analysis(metrics, monthly, benchmark_return)
 st.markdown("#### 通俗分析与研究结论")
 st.info(f"{analysis['status']}：{analysis['summary']}")

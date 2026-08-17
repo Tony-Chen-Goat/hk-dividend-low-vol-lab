@@ -3,7 +3,13 @@ import math
 import pandas as pd
 
 from app.benchmarks import add_benchmark_curves
-from app.monthly_chart import equity_curve_chart, selected_month_from_chart_event
+from app.monthly_chart import (
+    available_chart_months,
+    default_chart_window,
+    equity_curve_chart,
+    filter_chart_window,
+    selected_month_from_chart_event,
+)
 from app.monthly_details import monthly_rebalance_details
 
 
@@ -69,3 +75,27 @@ def test_selected_month_and_monthly_dialog_details():
     assert summary["entered_symbols"] == "0005.HK"
     assert transactions["动作"].tolist() == ["本月新增", "本月退出", "继续持有"]
     assert positions["symbol"].tolist() == ["0002.HK"]
+
+
+def test_default_chart_window_starts_from_january_ten_years_ago_and_uses_real_months():
+    monthly = pd.DataFrame({
+        "month_end": pd.to_datetime([
+            "2015-12-31", "2016-02-29", "2026-07-31", "2026-09-30"
+        ]),
+        "net_value": [0.9, 1.0, 2.0, 2.1],
+    })
+
+    assert available_chart_months(monthly) == ["2015-12", "2016-02", "2026-07", "2026-09"]
+    assert default_chart_window(monthly, years=10, today="2026-08-17") == ("2016-02", "2026-07")
+
+
+def test_filter_chart_window_is_inclusive_and_does_not_rebase_values():
+    monthly = pd.DataFrame({
+        "month_end": pd.to_datetime(["2023-12-29", "2024-01-31", "2024-02-29"]),
+        "net_value": [1.4, 1.5, 1.6],
+    })
+
+    filtered = filter_chart_window(monthly, "2024-01", "2024-02")
+
+    assert filtered["month_end"].tolist() == [pd.Timestamp("2024-01-31"), pd.Timestamp("2024-02-29")]
+    assert filtered["net_value"].tolist() == [1.5, 1.6]

@@ -26,6 +26,57 @@ EQUITY_CURVE_STYLES = {
 }
 
 
+def available_chart_months(monthly: pd.DataFrame) -> list[str]:
+    """Return sorted real months that can be displayed by the equity chart."""
+    if monthly.empty or "month_end" not in monthly:
+        return []
+    dates = pd.to_datetime(monthly["month_end"], errors="coerce").dropna()
+    return sorted(dates.dt.to_period("M").astype(str).unique().tolist())
+
+
+def default_chart_window(
+    monthly: pd.DataFrame,
+    years: int | None = 10,
+    today: pd.Timestamp | str | None = None,
+) -> tuple[str | None, str | None]:
+    """Choose a real-data window ending no later than today.
+
+    A finite ``years`` value starts from January of ``today.year - years``.
+    Missing boundary months are clamped to the nearest month that actually
+    exists in the saved backtest, so the UI never invents observations.
+    """
+    months = available_chart_months(monthly)
+    if not months:
+        return None, None
+
+    month_periods = pd.PeriodIndex(months, freq="M")
+    current = pd.Period(pd.Timestamp(today) if today is not None else pd.Timestamp.today(), freq="M")
+    not_future = month_periods[month_periods <= current]
+    end_period = not_future[-1] if len(not_future) else month_periods[-1]
+
+    if years is None:
+        start_period = month_periods[0]
+    else:
+        requested_start = pd.Period(year=current.year - int(years), month=1, freq="M")
+        eligible = month_periods[(month_periods >= requested_start) & (month_periods <= end_period)]
+        start_period = eligible[0] if len(eligible) else month_periods[0]
+
+    if start_period > end_period:
+        start_period = month_periods[0]
+    return str(start_period), str(end_period)
+
+
+def filter_chart_window(monthly: pd.DataFrame, start_month: str, end_month: str) -> pd.DataFrame:
+    """Filter saved monthly rows by inclusive calendar month without rebasing values."""
+    if monthly.empty or "month_end" not in monthly:
+        return monthly.copy()
+    data = monthly.copy()
+    dates = pd.to_datetime(data["month_end"], errors="coerce")
+    periods = dates.dt.to_period("M")
+    start_period, end_period = pd.Period(start_month, freq="M"), pd.Period(end_month, freq="M")
+    return data.loc[dates.notna() & periods.between(start_period, end_period)].copy()
+
+
 def equity_curve_chart(monthly: pd.DataFrame):
     data = monthly.copy()
     data["month_end"] = pd.to_datetime(data["month_end"])
