@@ -15,7 +15,7 @@ from app.experiment_store import experiment_display_name, experiment_score, get_
 from app.monthly_details import monthly_rebalance_details
 from app.monthly_chart import (
     available_chart_months,
-    default_chart_window,
+    chart_input_window,
     equity_curve_chart,
     filter_chart_window,
     selected_month_from_chart_event,
@@ -243,8 +243,7 @@ month_options = available_chart_months(monthly)
 if not month_options:
     st.warning("已保存回测中没有可识别的真实月份，暂时无法绘制净值曲线。请重新运行并保存月度组合回测。")
     st.stop()
-range_columns = st.columns([1.1, 1, 1])
-range_preset = range_columns[0].selectbox(
+range_preset = st.selectbox(
     "快捷显示范围",
     ["默认近10年", "近5年", "近3年", "全部真实数据", "自选时间段"],
     help="快捷范围只设置起止年月的初始值；右侧仍可继续自选。",
@@ -256,28 +255,60 @@ years_by_preset = {
     "全部真实数据": None,
     "自选时间段": 10,
 }
-suggested_start, suggested_end = default_chart_window(
+suggested_start, suggested_end = chart_input_window(
     monthly,
     years=years_by_preset[range_preset],
 )
-start_index = month_options.index(suggested_start) if suggested_start in month_options else 0
-end_index = month_options.index(suggested_end) if suggested_end in month_options else len(month_options) - 1
-month_label = lambda value: pd.Period(value, freq="M").strftime("%Y年%m月")
-start_month = range_columns[1].selectbox(
-    "起始年月",
-    month_options,
-    index=start_index,
-    format_func=month_label,
-    key=f"chart_start_month_{experiment_id}_{range_preset}",
-)
-end_month = range_columns[2].selectbox(
-    "终止年月",
-    month_options,
-    index=end_index,
-    format_func=month_label,
-    key=f"chart_end_month_{experiment_id}_{range_preset}",
-)
-if pd.Period(start_month, freq="M") > pd.Period(end_month, freq="M"):
+suggested_start_period = pd.Period(suggested_start, freq="M")
+suggested_end_period = pd.Period(suggested_end, freq="M")
+start_group, end_group = st.columns(2)
+start_group.markdown("**起始年月**")
+start_year_column, start_month_column = start_group.columns(2)
+start_year = int(start_year_column.number_input(
+    "起始年",
+    min_value=2016,
+    max_value=int(suggested_end_period.year),
+    value=int(suggested_start_period.year),
+    step=1,
+    key=f"chart_start_year_{experiment_id}_{range_preset}",
+))
+start_month_number = int(start_month_column.number_input(
+    "起始月",
+    min_value=1,
+    max_value=12,
+    value=int(suggested_start_period.month),
+    step=1,
+    key=f"chart_start_month_number_{experiment_id}_{range_preset}",
+))
+end_group.markdown("**终止年月**")
+end_year_column, end_month_column = end_group.columns(2)
+end_year = int(end_year_column.number_input(
+    "终止年",
+    min_value=2016,
+    max_value=int(suggested_end_period.year),
+    value=int(suggested_end_period.year),
+    step=1,
+    key=f"chart_end_year_{experiment_id}_{range_preset}",
+))
+end_month_number = int(end_month_column.number_input(
+    "终止月",
+    min_value=1,
+    max_value=12,
+    value=int(suggested_end_period.month),
+    step=1,
+    key=f"chart_end_month_number_{experiment_id}_{range_preset}",
+))
+start_month = f"{start_year:04d}-{start_month_number:02d}"
+end_month = f"{end_year:04d}-{end_month_number:02d}"
+start_period = pd.Period(start_month, freq="M")
+end_period = pd.Period(end_month, freq="M")
+if start_period < pd.Period("2016-01", freq="M"):
+    st.error("起始年月不能早于2016年1月。")
+    chart_monthly = monthly.iloc[0:0].copy()
+elif end_period > suggested_end_period:
+    st.error(f"终止年月不能晚于最新真实数据月份 {suggested_end_period.strftime('%Y年%m月')}。")
+    chart_monthly = monthly.iloc[0:0].copy()
+elif start_period > end_period:
     st.error("起始年月不能晚于终止年月，请重新选择。")
     chart_monthly = monthly.iloc[0:0].copy()
 else:

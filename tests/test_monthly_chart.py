@@ -5,6 +5,7 @@ import pandas as pd
 from app.benchmarks import add_benchmark_curves
 from app.monthly_chart import (
     available_chart_months,
+    chart_input_window,
     default_chart_window,
     equity_curve_chart,
     filter_chart_window,
@@ -99,3 +100,14 @@ def test_filter_chart_window_is_inclusive_and_does_not_rebase_values():
 
     assert filtered["month_end"].tolist() == [pd.Timestamp("2024-01-31"), pd.Timestamp("2024-02-29")]
     assert filtered["net_value"].tolist() == [1.5, 1.6]
+
+
+def test_chart_input_window_never_starts_before_january_2016():
+    monthly = pd.DataFrame({
+        "month_end": pd.to_datetime(["2011-01-31", "2017-02-28", "2026-07-31"]),
+        "net_value": [1.0, 1.2, 2.0],
+    })
+
+    assert chart_input_window(monthly, years=20, today="2026-08-17") == ("2016-01", "2026-07")
+    assert chart_input_window(monthly, years=None, today="2026-08-17") == ("2016-01", "2026-07")
+    assert chart_input_window(monthly, years=5, today="2026-08-17") == ("2021-01", "2026-07")

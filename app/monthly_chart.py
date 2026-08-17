@@ -66,6 +66,29 @@ def default_chart_window(
     return str(start_period), str(end_period)
 
 
+def chart_input_window(
+    monthly: pd.DataFrame,
+    years: int | None = 10,
+    today: pd.Timestamp | str | None = None,
+    earliest_month: str = "2016-01",
+) -> tuple[str | None, str | None]:
+    """Return calendar input defaults with a hard lower month boundary."""
+    months = available_chart_months(monthly)
+    if not months:
+        return None, None
+
+    current = pd.Period(pd.Timestamp(today) if today is not None else pd.Timestamp.today(), freq="M")
+    floor = pd.Period(earliest_month, freq="M")
+    _, latest_month = default_chart_window(monthly, years=None, today=today)
+    end_period = pd.Period(latest_month, freq="M")
+    if years is None:
+        requested_start = pd.Period(months[0], freq="M")
+    else:
+        requested_start = pd.Period(year=current.year - int(years), month=1, freq="M")
+    start_period = max(floor, requested_start)
+    return str(start_period), str(end_period)
+
+
 def filter_chart_window(monthly: pd.DataFrame, start_month: str, end_month: str) -> pd.DataFrame:
     """Filter saved monthly rows by inclusive calendar month without rebasing values."""
     if monthly.empty or "month_end" not in monthly:
