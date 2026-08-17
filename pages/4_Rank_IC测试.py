@@ -14,6 +14,9 @@ from app.ui import empty_state, setup_page
 
 
 setup_page("Rank IC 测试", "📐")
+saved_notice = st.session_state.pop("rank_ic_saved_notice", None)
+if saved_notice:
+    st.success(saved_notice)
 experiments = available_experiments(DEFAULT_DB_PATH)
 if experiments.empty:
     empty_state("尚无月度因子与下一月收益。请先在因子实验室执行计算。")
@@ -40,6 +43,12 @@ saved_minimum = int((experiment.get("metrics") or {}).get("rank_ic_minimum", 5))
 if locked:
     st.success("这是已经批准的正式实验。Rank IC设置已锁定；如需调整，请创建新的实验版本。")
 minimum = st.number_input("单月最少有效股票", 3, 100, saved_minimum, disabled=locked)
+save_rank_ic = st.button(
+    "运行并保存 Rank IC 测试",
+    type="primary",
+    disabled=locked,
+    help="修改最少有效股票只会形成预览；点击本按钮后才会覆盖当前实验的Rank IC归档。",
+)
 monthly = monthly_rank_ic(panel, "model_score", "forward_return", int(minimum))
 summary = ic_summary(monthly)
 summary["rank_ic_minimum"] = int(minimum)
@@ -66,7 +75,14 @@ active_weights = experiment.get("factor_weights") or {}
 st.markdown(f"#### {len(active_weights)} 个子因子比较")
 score_columns = [f"{factor}__score" for factor in active_weights]
 comparison = compare_factor_ics(panel, score_columns)
-store_rank_ic_results(experiment_id, monthly, summary, comparison, DEFAULT_DB_PATH)
+if save_rank_ic:
+    store_rank_ic_results(experiment_id, monthly, summary, comparison, DEFAULT_DB_PATH)
+    st.session_state["rank_ic_saved_notice"] = f"实验 {experiment_id} 的 Rank IC 测试已保存。"
+    st.rerun()
+if not locked and int(minimum) != saved_minimum:
+    st.warning("当前展示的是尚未保存的Rank IC参数预览；实验档案仍保留上一次已保存结果。")
+elif "rank_ic_minimum" not in (experiment.get("metrics") or {}):
+    st.info("当前为首次Rank IC预览。确认结果后，请点击“运行并保存 Rank IC 测试”。")
 comparison["因子"] = comparison["factor"].str.replace("__score", "", regex=False).map(FACTOR_LABELS)
 st.dataframe(localized_frame(comparison.drop(columns="factor")), use_container_width=True, hide_index=True)
 st.caption("每个月使用当月全部有效股票计算 Spearman 相关，不限于最终入选股票；有效样本太少时跳过并保留原因。")

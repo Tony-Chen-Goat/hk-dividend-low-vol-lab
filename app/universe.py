@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -11,6 +13,63 @@ from .yahoo_provider import normalize_hk_symbol
 
 
 EXCLUDED_TYPES = {"ETF", "REIT", "SPAC", "WARRANT", "CBBC", "PREFERRED STOCK", "STRUCTURED PRODUCT"}
+
+
+def _canonical_value(value):
+    if value is None:
+        return None
+    try:
+        if bool(pd.isna(value)):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if hasattr(value, "item"):
+        return value.item()
+    return value
+
+
+def stable_frame_fingerprint(frame: pd.DataFrame, columns: list[str] | None = None) -> str:
+    """Hash tabular content independently of upload row order/DataFrame index."""
+    selected = [column for column in (columns or list(frame.columns)) if column in frame]
+    records = []
+    if selected:
+        ordered = frame[selected].copy()
+        sort_columns = [column for column in ["symbol", "trade_date", "report_period"] if column in ordered]
+        if sort_columns:
+            ordered = ordered.sort_values(sort_columns, kind="stable", na_position="last")
+        for row in ordered.to_dict("records"):
+            records.append({column: _canonical_value(row.get(column)) for column in selected})
+    payload = json.dumps(records, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+def universe_fingerprint(frame: pd.DataFrame) -> str:
+    return stable_frame_fingerprint(frame, UNIVERSE_COLUMNS)
+
+
+def risk_snapshot_fingerprint(
+    snapshot: pd.DataFrame,
+    settings: Mapping[str, float | int | bool],
+    *,
+    as_of=None,
+    universe_version: str | None = None,
+) -> str:
+    columns = [
+        "symbol", "security_type", "board", "listing_days", "last_trade_date",
+        "close", "valid_trading_ratio_60d", "max_suspension_days",
+        "avg_traded_value_20d", "free_float_market_cap",
+        "stopped_dividend_1y", "dividend_cut", "inactive_event_effective",
+    ]
+    payload = {
+        "as_of": str(pd.Timestamp(as_of).date()) if as_of is not None else None,
+        "universe_version": universe_version,
+        "settings": {str(key): _canonical_value(value) for key, value in sorted(settings.items())},
+        "snapshot": stable_frame_fingerprint(snapshot, columns),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:12]
 
 
 def default_filter_settings(model_name: str = "yahoo_10") -> dict:
@@ -70,7 +129,8 @@ def apply_hk_risk_filters(
 ) -> FilterResult:
     cfg = {**RISK_DEFAULTS, **(settings or {})}
     rows = []
-    for _, row in snapshot.iterrows():
+    ordered_snapshot = snapshot.sort_values("symbol", kind="stable") if "symbol" in snapshot else snapshot
+    for _, row in ordered_snapshot.iterrows():
         reasons: list[str] = []
         security_type = str(row.get("security_type", "")).strip()
         normalized_security_type = security_type.upper()
@@ -90,7 +150,8 @@ def apply_hk_risk_filters(
             reasons.append("60日有效交易比例不足")
         if row.get("max_suspension_days", 0) > cfg["max_suspension_days"]:
             reasons.append("连续停牌日数超限")
-        if bool(row.get("stopped_dividend_1y", False)):
+        stopped_dividend = row.get("stopped_dividend_1y", False)
+        if pd.notna(stopped_dividend) and bool(stopped_dividend):
             reasons.append("最近一年停止派息")
         if pd.notna(row.get("dividend_cut")) and row.get("dividend_cut") > cfg["max_dividend_cut"]:
             reasons.append("最近一年股息削减超限")
@@ -101,7 +162,8 @@ def apply_hk_risk_filters(
             or row.get("free_float_market_cap") < cfg["min_free_float_market_cap"]
         ):
             reasons.append("自由流通市值不足或缺失")
-        if bool(row.get("inactive_event_effective", False)):
+        inactive_event = row.get("inactive_event_effective", False)
+        if pd.notna(inactive_event) and bool(inactive_event):
             reasons.append("退市/清盘/私有化/长期停牌信息已生效")
         payload = row.to_dict()
         payload["included"] = not reasons
@@ -126,12 +188,15 @@ def build_risk_snapshot(prices: pd.DataFrame, securities: pd.DataFrame, fundamen
         records.append({
             "symbol": symbol,
             "listing_days": int(group["listing_days"].max()) if "listing_days" in group else int(group["trade_date"].nunique()),
+            "last_trade_date": group.iloc[-1]["trade_date"],
             "close": group.iloc[-1]["close"],
             "valid_trading_ratio_60d": float(valid.mean()) if len(tail60) else np.nan,
             "max_suspension_days": int(streaks.max()) if len(streaks) else 0,
             "avg_traded_value_20d": float((tail20["close"] * tail20["volume"]).mean()),
         })
-    result = securities.merge(pd.DataFrame(records), on="symbol", how="left")
+    result = securities.sort_values("symbol", kind="stable").merge(
+        pd.DataFrame(records), on="symbol", how="left", sort=True,
+    )
     if fundamentals is not None and not fundamentals.empty:
         latest = fundamentals.sort_values("report_period").groupby("symbol").tail(1)
         result = result.merge(latest[["symbol", "free_float_shares"]], on="symbol", how="left")

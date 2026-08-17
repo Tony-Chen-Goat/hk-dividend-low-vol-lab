@@ -7,14 +7,16 @@ import pandas as pd
 import streamlit as st
 
 from app.config import BENCHMARKS, DEFAULT_DB_PATH
-from app.database import connect, export_table_csv, initialize_database, read_table, restore_database, table_counts, upsert_rows
+from app.database import connect, export_table_csv, load_setting, read_table, restore_database, save_setting, table_counts, upsert_rows
 from app.display import localized_frame
 from app.ui import cloud_storage_notice, setup_page, yahoo_notice
-from app.universe import validate_universe_csv
+from app.universe import universe_fingerprint, validate_universe_csv
 from app.yahoo_provider import fetch_benchmark_prices, fetch_yahoo_data
 
 
 setup_page("数据中心", "🗄️")
+if st.session_state.pop("database_restore_complete", False):
+    st.success("数据库完整性检查通过并已恢复；旧页面控件状态已清除，请按恢复后的版本继续操作。")
 counts = table_counts(DEFAULT_DB_PATH)
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("证券池", counts["security_master"])
@@ -36,10 +38,24 @@ if universe_file and st.button("校验并写入证券池", type="primary"):
                 "listing_date": None, "security_type": row["security_type"], "board": row["board"],
                 "index_membership": row["index_membership"], "effective_date": row["effective_date"], "end_date": row["end_date"], "source": row["source"],
             })
+        active_symbols = sorted(valid["symbol"].dropna().astype(str).drop_duplicates().tolist())
+        universe_version = universe_fingerprint(valid)
+        active_payload = {
+            "version": universe_version,
+            "symbols": active_symbols,
+            "row_count": len(active_symbols),
+            "file_name": universe_file.name,
+            "imported_at": pd.Timestamp.now(tz="Asia/Shanghai").isoformat(),
+        }
         with connect(DEFAULT_DB_PATH) as conn:
             upsert_rows(conn, "security_master", rows)
+            upsert_rows(conn, "research_settings", [{
+                "setting_key": "active_universe",
+                "value_json": json.dumps(active_payload, ensure_ascii=False),
+                "updated_at": active_payload["imported_at"],
+            }])
         st.session_state["yahoo_symbols_text"] = ", ".join(valid["symbol"].dropna().astype(str).drop_duplicates())
-        st.success(f"写入 {len(rows)} 只证券；无效 {len(invalid)} 只。")
+        st.success(f"写入 {len(rows)} 只证券；无效 {len(invalid)} 只。当前活动证券池版本：{universe_version}。")
         if not invalid.empty:
             st.dataframe(localized_frame(invalid[["raw_symbol", "symbol_error"]]), use_container_width=True)
     except Exception as exc:
@@ -47,7 +63,12 @@ if universe_file and st.button("校验并写入证券池", type="primary"):
 
 st.markdown("#### 手动 Yahoo 更新")
 securities = read_table("security_master", DEFAULT_DB_PATH)
-all_symbols = securities["symbol"].dropna().astype(str).drop_duplicates().tolist() if not securities.empty else []
+active_universe = load_setting("active_universe", {}, DEFAULT_DB_PATH) or {}
+active_symbol_scope = active_universe.get("symbols") or []
+if active_symbol_scope:
+    all_symbols = sorted({str(symbol) for symbol in active_symbol_scope})
+else:
+    all_symbols = sorted(securities["symbol"].dropna().astype(str).drop_duplicates().tolist()) if not securities.empty else []
 default_symbols = ", ".join(all_symbols)
 if "yahoo_symbols_text" not in st.session_state:
     st.session_state["yahoo_symbols_text"] = default_symbols
@@ -71,6 +92,28 @@ if st.button("开始更新 Yahoo 数据", type="primary"):
         st.error("开始日期必须早于结束日期。")
     else:
         bar, status = st.progress(0.0), st.empty()
+        started_at = pd.Timestamp.now(tz="Asia/Shanghai").isoformat()
+        with connect(DEFAULT_DB_PATH) as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO update_logs (
+                  started_at, requested_count, success_count, failed_count,
+                  failures_json, status
+                ) VALUES (?, ?, 0, 0, '[]', 'running')
+                """,
+                (started_at, len(symbols)),
+            )
+            update_log_id = int(cursor.lastrowid)
+        previous_state = load_setting("market_data_update_state", {}, DEFAULT_DB_PATH) or {}
+        save_setting(
+            "market_data_update_state",
+            {
+                "status": "running", "started_at": started_at,
+                "requested_count": len(symbols),
+                "revision": int(previous_state.get("revision", 0) or 0),
+            },
+            DEFAULT_DB_PATH,
+        )
         def progress(done, total, symbol):
             bar.progress(done / max(total, 1)); status.caption(f"正在处理 {symbol}（{done}/{total}）")
         try:
@@ -90,26 +133,69 @@ if st.button("开始更新 Yahoo 数据", type="primary"):
                 symbols, start, end, batch_size=int(batch_size), progress=progress,
                 batch_sink=save_batch,
             )
+            finished_at = pd.Timestamp.now(tz="Asia/Shanghai").isoformat()
+            final_status = "completed_with_warnings" if result.failures else "completed"
+            failure_payload = json.dumps([failure.__dict__ for failure in result.failures], ensure_ascii=False)
             with connect(DEFAULT_DB_PATH) as conn:
-                upsert_rows(
-                    conn, "update_logs", [{
-                    "started_at": pd.Timestamp.now().isoformat(), "finished_at": pd.Timestamp.now().isoformat(),
-                    "requested_count": len(symbols), "success_count": result.success_count,
-                    "failed_count": len(result.failures), "failures_json": json.dumps([failure.__dict__ for failure in result.failures], ensure_ascii=False),
-                    "status": "completed_with_warnings" if result.failures else "completed",
-                }])
+                conn.execute(
+                    """
+                    UPDATE update_logs
+                    SET finished_at = ?, success_count = ?, failed_count = ?,
+                        failures_json = ?, status = ?
+                    WHERE id = ?
+                    """,
+                    (finished_at, result.success_count, len(result.failures), failure_payload, final_status, update_log_id),
+                )
+            save_setting(
+                "market_data_update_state",
+                {
+                    "status": final_status, "started_at": started_at,
+                    "finished_at": finished_at, "requested_count": len(symbols),
+                    "success_count": result.success_count,
+                    "failed_count": len(result.failures),
+                    "revision": int(previous_state.get("revision", 0) or 0) + int(result.price_row_count > 0),
+                },
+                DEFAULT_DB_PATH,
+            )
             st.success(f"更新完成：价格 {result.price_row_count:,} 行，分红 {result.dividend_row_count:,} 行，公司行动 {result.action_row_count:,} 行。")
             if result.failures:
                 st.warning("部分股票失败，任务其余部分已保存。")
                 st.dataframe(localized_frame(pd.DataFrame([failure.__dict__ for failure in result.failures])), use_container_width=True)
         except Exception as exc:
+            finished_at = pd.Timestamp.now(tz="Asia/Shanghai").isoformat()
+            with connect(DEFAULT_DB_PATH) as conn:
+                conn.execute(
+                    "UPDATE update_logs SET finished_at = ?, status = ?, failures_json = ? WHERE id = ?",
+                    (finished_at, "failed", json.dumps([{"reason": str(exc)}], ensure_ascii=False), update_log_id),
+                )
+            save_setting(
+                "market_data_update_state",
+                {
+                    "status": "failed", "started_at": started_at,
+                    "finished_at": finished_at, "requested_count": len(symbols),
+                    "revision": int(previous_state.get("revision", 0) or 0),
+                    "reason": str(exc),
+                },
+                DEFAULT_DB_PATH,
+            )
             st.error(f"Yahoo 更新未完成：{exc}")
 
 if st.button("更新已验证基准指数（恒指 / 国企指数）"):
     try:
+        benchmark_state = load_setting("benchmark_data_update_state", {}, DEFAULT_DB_PATH) or {}
         benchmark_prices, failures = fetch_benchmark_prices(BENCHMARKS.values(), start, end)
         with connect(DEFAULT_DB_PATH) as conn:
             upsert_rows(conn, "daily_prices", benchmark_prices.to_dict("records"))
+        save_setting(
+            "benchmark_data_update_state",
+            {
+                "status": "completed_with_warnings" if failures else "completed",
+                "updated_at": pd.Timestamp.now(tz="Asia/Shanghai").isoformat(),
+                "revision": int(benchmark_state.get("revision", 0) or 0) + int(not benchmark_prices.empty),
+                "failed_count": len(failures),
+            },
+            DEFAULT_DB_PATH,
+        )
         st.success(f"基准更新完成：{len(benchmark_prices):,} 行。")
         if failures:
             st.warning("；".join(f"{item.symbol}: {item.reason}" for item in failures))
@@ -148,7 +234,17 @@ backup = st.file_uploader("上传 SQLite 备份恢复（将替换当前运行缓
 if backup and st.button("检查并恢复 SQLite"):
     try:
         restore_database(backup.getvalue(), DEFAULT_DB_PATH)
-        st.success("数据库完整性检查通过并已恢复。")
+        for key in list(st.session_state):
+            if key.startswith((
+                "main_board_only_", "exclude_gem_", "allow_reit_",
+                "min_price_hkd_", "min_listing_days_",
+                "min_valid_trading_ratio_60d_", "max_suspension_days_",
+                "min_avg_traded_value_20d_", "min_free_float_market_cap_",
+                "weight_",
+            )) or key in {"yahoo_symbols_text", "active_experiment_id"}:
+                del st.session_state[key]
+        st.session_state["database_restore_complete"] = True
+        st.rerun()
     except Exception as exc:
         st.error(str(exc))
 yahoo_notice()

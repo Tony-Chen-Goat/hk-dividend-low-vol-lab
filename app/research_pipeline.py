@@ -8,7 +8,7 @@ import pandas as pd
 
 from .backtest import calculate_forward_returns, run_monthly_backtest
 from .config import DEFAULT_DB_PATH, FACTOR_WEIGHTS, MODEL_FACTOR_GROUPS, MODEL_FACTOR_WEIGHTS, MODEL_FULL_13
-from .database import connect, initialize_database, read_table, upsert_rows
+from .database import connect, initialize_database, load_setting, read_table, resolve_stock_data_cutoff, upsert_rows
 from .experiment_store import save_experiment
 from .factors import calculate_monthly_features
 from .portfolio import build_article_baseline, build_enhanced_portfolio
@@ -36,16 +36,29 @@ def compute_and_store_features(
     risk_settings: dict | None = None,
 ) -> pd.DataFrame:
     initialize_database(path)
+    update_state = load_setting("market_data_update_state", {}, path) or {}
+    if update_state.get("status") == "running":
+        started = pd.to_datetime(update_state.get("started_at"), errors="coerce", utc=True)
+        age_hours = (pd.Timestamp.now(tz="UTC") - started).total_seconds() / 3600 if pd.notna(started) else 0
+        if age_hours < 6:
+            raise RuntimeError("Yahoo数据仍在更新，不能用半完成数据创建实验。请等待数据中心更新完成。")
+
+    active_universe = load_setting("active_universe", {}, path) or {}
+    active_symbols = sorted({str(symbol) for symbol in active_universe.get("symbols", []) if symbol})
+    active_filter = {"symbol": active_symbols} if active_symbols else None
     prices = read_table(
         "daily_prices", path,
+        filters=active_filter,
         columns=["symbol", "trade_date", "close", "adjusted_close", "volume"],
     )
     dividends = read_table(
         "dividends", path,
+        filters=active_filter,
         columns=["symbol", "ex_date", "dividend_per_share"],
     )
     fundamentals = read_table(
         "fundamentals", path,
+        filters=active_filter,
         columns=[
             "symbol", "report_period", "published_date", "net_income",
             "operating_cash_flow", "cash_dividends_paid", "free_float_shares",
@@ -54,6 +67,7 @@ def compute_and_store_features(
     )
     securities = read_table(
         "security_master", path,
+        filters=active_filter,
         columns=[
             "symbol", "name", "sector", "listing_date", "security_type",
             "board", "index_membership", "effective_date", "end_date",
@@ -62,6 +76,10 @@ def compute_and_store_features(
     if prices.empty:
         return pd.DataFrame()
     prices["trade_date"] = pd.to_datetime(prices["trade_date"], errors="coerce")
+    cutoff_meta = resolve_stock_data_cutoff(path, active_symbols)
+    data_cutoff = pd.to_datetime(cutoff_meta.get("as_of"), errors="coerce")
+    if pd.notna(data_cutoff):
+        prices = prices[prices["trade_date"] <= data_cutoff].copy()
     if not dividends.empty:
         dividends["ex_date"] = pd.to_datetime(dividends["ex_date"], errors="coerce")
     if not fundamentals.empty:
@@ -77,12 +95,17 @@ def compute_and_store_features(
         return pd.DataFrame()
     active_weights = weights or dict(MODEL_FACTOR_WEIGHTS[model_name])
     active_risk_settings = {**default_filter_settings(model_name), **(risk_settings or {})}
+    active_risk_settings.update({
+        "_universe_version": active_universe.get("version") or "legacy-all",
+        "_data_revision": int(update_state.get("revision", 0) or 0),
+        "_data_cutoff": str(data_cutoff.date()) if pd.notna(data_cutoff) else None,
+    })
     experiment_id = save_experiment(
         {
             "experiment_id": experiment_id,
             "name": experiment_name or "手动因子实验",
             "model_name": model_name,
-            "universe_name": "风险过滤后的导入证券池",
+            "universe_name": f"风险过滤后的导入证券池（{active_universe.get('version') or 'legacy-all'}）",
             "data_start": str(pd.to_datetime(prices["trade_date"]).min().date()),
             "data_end": str(pd.to_datetime(prices["trade_date"]).max().date()),
             "factor_weights": active_weights,
@@ -93,7 +116,7 @@ def compute_and_store_features(
             "risk_settings": active_risk_settings,
             "coverage": None,
             "survivor_bias": True,
-            "quality_note": "使用当前导入证券池回溯历史，仍可能存在幸存者偏差；每月风险过滤仅使用当时及以前的数据。",
+            "quality_note": "证券池、规则、数据修订版和统一截止日已绑定到本实验；使用当前导入证券池回溯历史，仍可能存在幸存者偏差；每月风险过滤仅使用当时及以前的数据。",
             "is_out_of_sample": False,
             "status": "calculating",
         },

@@ -114,8 +114,13 @@ CREATE TABLE IF NOT EXISTS update_logs (
 def connect(path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    # Streamlit may serve more than one browser session at the same time.  A
+    # short default SQLite timeout can otherwise turn harmless concurrent
+    # reads/batch writes into intermittent ``database is locked`` failures.
+    conn = sqlite3.connect(path, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
     return conn
 
 
@@ -355,7 +360,19 @@ def table_counts(path: str | Path = DEFAULT_DB_PATH) -> dict[str, int]:
     initialize_database(path)
     names = ["security_master", "daily_prices", "dividends", "fundamentals", "monthly_features", "experiments"]
     with connect(path) as conn:
-        return {name: conn.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0] for name in names}
+        counts = {name: conn.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0] for name in names}
+        active = conn.execute(
+            "SELECT value_json FROM research_settings WHERE setting_key = 'active_universe'"
+        ).fetchone()
+        if active is not None:
+            try:
+                active_payload = json.loads(active[0])
+                active_symbols = {str(symbol) for symbol in active_payload.get("symbols", []) if symbol}
+                if active_symbols:
+                    counts["security_master"] = len(active_symbols)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+        return counts
 
 
 READABLE_TABLES = {
@@ -437,19 +454,38 @@ def minimum_stock_trade_date(path: str | Path = DEFAULT_DB_PATH) -> str | None:
 
 
 def read_recent_stock_prices(
-    path: str | Path = DEFAULT_DB_PATH, lookback: int = 60,
+    path: str | Path = DEFAULT_DB_PATH,
+    lookback: int = 60,
+    *,
+    symbols: Iterable[str] | None = None,
+    as_of=None,
 ) -> pd.DataFrame:
-    """Return recent rows plus an all-history listing-day count per security."""
+    """Return a deterministic recent slice and listing-day count.
+
+    ``as_of`` gives every security the same information cutoff.  ``symbols``
+    limits the query to the currently imported universe so stale master rows
+    from an older CSV cannot silently re-enter a risk snapshot.
+    """
     initialize_database(path)
+    requested = sorted({str(symbol) for symbol in (symbols or []) if symbol})
+    clauses = ["symbol NOT LIKE '^%'"]
+    params: list[object] = []
+    if requested:
+        clauses.append(f"symbol IN ({','.join('?' for _ in requested)})")
+        params.extend(requested)
+    if as_of is not None:
+        clauses.append("trade_date <= ?")
+        params.append(pd.Timestamp(as_of).date().isoformat())
+    params.append(int(lookback))
     with connect(path) as conn:
         return pd.read_sql_query(
-            """
+            f"""
             WITH ranked AS (
               SELECT symbol, trade_date, close, volume,
                      ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trade_date DESC) AS recent_rank,
                      COUNT(*) OVER (PARTITION BY symbol) AS listing_days
               FROM daily_prices
-              WHERE symbol NOT LIKE '^%'
+              WHERE {' AND '.join(clauses)}
             )
             SELECT symbol, trade_date, close, volume, listing_days
             FROM ranked
@@ -457,8 +493,61 @@ def read_recent_stock_prices(
             ORDER BY symbol, trade_date
             """,
             conn,
-            params=(int(lookback),),
+            params=params,
         )
+
+
+def resolve_stock_data_cutoff(
+    path: str | Path = DEFAULT_DB_PATH,
+    symbols: Iterable[str] | None = None,
+) -> dict:
+    """Return the modal latest trading date for a stock universe.
+
+    Using the newest date held by just one security can expose a partially
+    completed Yahoo batch.  The modal per-symbol latest date represents the
+    date shared by the largest part of the active universe and is stable for a
+    fixed database revision.
+    """
+    initialize_database(path)
+    requested = sorted({str(symbol) for symbol in (symbols or []) if symbol})
+    clauses = ["symbol NOT LIKE '^%'"]
+    params: list[object] = []
+    if requested:
+        clauses.append(f"symbol IN ({','.join('?' for _ in requested)})")
+        params.extend(requested)
+    with connect(path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT latest_date, COUNT(*) AS symbol_count
+            FROM (
+              SELECT symbol, MAX(trade_date) AS latest_date
+              FROM daily_prices
+              WHERE {' AND '.join(clauses)}
+              GROUP BY symbol
+            )
+            WHERE latest_date IS NOT NULL
+            GROUP BY latest_date
+            ORDER BY symbol_count DESC, latest_date DESC
+            """,
+            params,
+        ).fetchall()
+        available = conn.execute(
+            f"SELECT COUNT(DISTINCT symbol) FROM daily_prices WHERE {' AND '.join(clauses)}",
+            params,
+        ).fetchone()[0]
+    if not rows:
+        return {
+            "as_of": None,
+            "aligned_symbols": 0,
+            "available_symbols": int(available or 0),
+            "requested_symbols": len(requested),
+        }
+    return {
+        "as_of": str(rows[0][0]),
+        "aligned_symbols": int(rows[0][1]),
+        "available_symbols": int(available or 0),
+        "requested_symbols": len(requested),
+    }
 
 
 def export_table_csv(table: str, path: str | Path = DEFAULT_DB_PATH) -> bytes:

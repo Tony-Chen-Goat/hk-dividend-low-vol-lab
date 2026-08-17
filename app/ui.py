@@ -7,7 +7,7 @@ import streamlit as st
 
 from .config import APP_NAME, APP_SUBTITLE, DEFAULT_DB_PATH
 from .data_quality import database_quality_snapshot
-from .database import initialize_database
+from .database import initialize_database, load_setting
 
 
 CSS = """
@@ -36,8 +36,17 @@ def setup_page(title: str, icon: str = "📊") -> dict:
     st.markdown(f'<div class="lab-title">{title}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="lab-subtitle">{APP_SUBTITLE}</div>', unsafe_allow_html=True)
     snapshot = database_quality_snapshot(DEFAULT_DB_PATH)
+    active_universe = load_setting("active_universe", {}, DEFAULT_DB_PATH) or {}
+    update_state = load_setting("market_data_update_state", {}, DEFAULT_DB_PATH) or {}
     cutoff = snapshot["data_cutoff"].date().isoformat() if pd.notna(snapshot["data_cutoff"]) else "尚无数据"
     st.markdown(f'<div class="quality-strip">数据截止：<b>{cutoff}</b>　·　价格覆盖 {snapshot["price_coverage"]:.0%}　·　分红覆盖 {snapshot["dividend_coverage"]:.0%}　·　财务覆盖 {snapshot["fundamental_coverage"]:.0%}</div>', unsafe_allow_html=True)
+    if active_universe:
+        st.caption(
+            f"当前活动证券池：{active_universe.get('version', '未知版本')}（{int(active_universe.get('row_count', 0) or 0)}只）"
+            f"　·　市场数据修订版：R{int(update_state.get('revision', 0) or 0)}"
+        )
+    if update_state.get("status") == "running":
+        st.warning("市场数据正在更新。已保存实验仍可查看，但请等待更新完成后再创建新的风险快照或因子实验。")
     if snapshot["quality_note"]:
         st.warning(snapshot["quality_note"])
     return snapshot

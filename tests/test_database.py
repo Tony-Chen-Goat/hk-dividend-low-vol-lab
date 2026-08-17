@@ -2,7 +2,16 @@ import json
 
 import pandas as pd
 
-from app.database import connect, export_table_csv, initialize_database, read_table, upsert_rows
+from app.database import (
+    connect,
+    export_table_csv,
+    initialize_database,
+    read_recent_stock_prices,
+    read_table,
+    resolve_stock_data_cutoff,
+    table_counts,
+    upsert_rows,
+)
 from app.experiment_store import import_experiments_csv, list_experiments, save_experiment
 
 
@@ -128,3 +137,54 @@ def test_csv_export_and_experiment_import(tmp_path):
     frame = pd.DataFrame({"experiment_id": ["E1"], "name": ["Experiment"], "created_at": ["2024-01-01T00:00:00Z"]})
     assert import_experiments_csv(frame, path) == 1
     assert b"experiment_id" in export_table_csv("experiments", path)
+
+
+def test_recent_prices_use_active_symbols_and_common_cutoff(tmp_path):
+    path = tmp_path / "cutoff.sqlite3"
+    initialize_database(path)
+    rows = []
+    for symbol, dates in {
+        "0001.HK": ["2026-08-10", "2026-08-11", "2026-08-12"],
+        "0002.HK": ["2026-08-10", "2026-08-11", "2026-08-12"],
+        "0003.HK": ["2026-08-10", "2026-08-11"],
+        "9999.HK": ["2026-08-13"],
+    }.items():
+        rows.extend({
+            "symbol": symbol, "trade_date": trade_date,
+            "close": 10.0, "volume": 1000.0, "source": "test",
+        } for trade_date in dates)
+    with connect(path) as conn:
+        upsert_rows(conn, "daily_prices", rows)
+
+    cutoff = resolve_stock_data_cutoff(path, ["0001.HK", "0002.HK", "0003.HK"])
+    recent = read_recent_stock_prices(
+        path, 60, symbols=["0001.HK", "0003.HK"], as_of="2026-08-11",
+    )
+
+    assert cutoff == {
+        "as_of": "2026-08-12", "aligned_symbols": 2,
+        "available_symbols": 3, "requested_symbols": 3,
+    }
+    assert set(recent["symbol"]) == {"0001.HK", "0003.HK"}
+    assert recent["trade_date"].max() == "2026-08-11"
+    assert set(recent["listing_days"]) == {2}
+
+
+def test_active_universe_count_ignores_stale_master_rows(tmp_path):
+    path = tmp_path / "active.sqlite3"
+    initialize_database(path)
+    with connect(path) as conn:
+        upsert_rows(conn, "security_master", [
+            {"symbol": "0001.HK", "source": "new"},
+            {"symbol": "0002.HK", "source": "new"},
+            {"symbol": "9999.HK", "source": "old"},
+        ])
+        upsert_rows(conn, "research_settings", [{
+            "setting_key": "active_universe",
+            "value_json": json.dumps({
+                "version": "abc123", "symbols": ["0001.HK", "0002.HK"],
+            }),
+            "updated_at": "2026-08-17T00:00:00+08:00",
+        }])
+
+    assert table_counts(path)["security_master"] == 2
