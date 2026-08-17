@@ -10,7 +10,8 @@ from app.config import BENCHMARKS, DEFAULT_DB_PATH
 from app.database import connect, export_table_csv, load_setting, read_table, restore_database, save_setting, table_counts, upsert_rows
 from app.display import localized_frame
 from app.ui import cloud_storage_notice, setup_page, yahoo_notice
-from app.universe import universe_fingerprint, validate_universe_csv
+from app.stability import universe_fingerprint
+from app.universe import validate_universe_csv
 from app.yahoo_provider import fetch_benchmark_prices, fetch_yahoo_data
 
 

@@ -5,7 +5,8 @@ from pathlib import Path
 import pandas as pd
 
 from .config import DEFAULT_DB_PATH
-from .database import connect, initialize_database, load_setting, resolve_stock_data_cutoff
+from .database import connect, initialize_database, load_setting
+from .stability import resolve_stock_data_cutoff
 
 
 def coverage_ratio(frame: pd.DataFrame, columns: list[str]) -> float:
