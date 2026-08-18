@@ -15,6 +15,8 @@ streamlit run streamlit_app.py
 
 Streamlit Community Cloud 的主文件固定为 `streamlit_app.py`。项目不需要密钥；Yahoo 只在用户点击“开始更新 Yahoo 数据”后请求，不自动刷新。
 
+部署环境固定使用 `Streamlit 1.61.1`，避免云端重建时自动升级前端运行时并产生静态分片文件名错配。若在一次依赖升级部署期间，已打开的旧标签页出现 `Failed to fetch dynamically imported module`，请关闭旧标签页后重新打开应用，或执行一次强制刷新；新标签页会读取当前部署的完整资源清单。
+
 ## 推荐流程
 
 1. 在“数据中心”上传 `data/sample_hk_universe.csv` 或自定义证券池 CSV。
