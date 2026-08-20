@@ -6,7 +6,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
-from app.config import BENCHMARKS, DEFAULT_DB_PATH
+from app.config import BENCHMARKS, DATA_DIR, DEFAULT_DB_PATH
 from app.database import connect, export_table_csv, load_setting, read_table, restore_database, save_setting, table_counts, upsert_rows
 from app.display import localized_frame
 from app.ui import cloud_storage_notice, setup_page, yahoo_notice
@@ -18,6 +18,11 @@ from app.yahoo_provider import fetch_benchmark_prices, fetch_yahoo_data
 setup_page("数据中心", "🗄️")
 if st.session_state.pop("database_restore_complete", False):
     st.success("数据库完整性检查通过并已恢复；旧页面控件状态已清除，请按恢复后的版本继续操作。")
+if import_notice := st.session_state.pop("universe_import_notice", None):
+    st.success(import_notice)
+if invalid_records := st.session_state.pop("universe_invalid_records", None):
+    st.warning(f"另有 {len(invalid_records)} 行证券代码无效，未写入证券池。")
+    st.dataframe(localized_frame(pd.DataFrame(invalid_records)), use_container_width=True)
 counts = table_counts(DEFAULT_DB_PATH)
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("证券池", counts["security_master"])
@@ -25,42 +30,73 @@ c2.metric("日线记录", counts["daily_prices"])
 c3.metric("分红记录", counts["dividends"])
 c4.metric("财务记录", counts["fundamentals"])
 
+BUILTIN_UNIVERSE_PATH = DATA_DIR / "current_hsi_hscei_universe.csv"
+
+
+def persist_universe(frame: pd.DataFrame, file_name: str) -> tuple[int, pd.DataFrame, str]:
+    universe = validate_universe_csv(frame)
+    invalid = universe[universe["symbol_error"].notna()].copy()
+    valid = universe[universe["symbol_error"].isna()].copy()
+    if valid.empty:
+        raise ValueError("证券池中没有可写入的有效港股代码。")
+    rows = []
+    for row in valid.to_dict("records"):
+        rows.append({
+            "symbol": row["symbol"], "raw_symbol": row["raw_symbol"], "name": row["name"], "sector": row["sector"],
+            "listing_date": None, "security_type": row["security_type"], "board": row["board"],
+            "index_membership": row["index_membership"], "effective_date": row["effective_date"], "end_date": row["end_date"], "source": row["source"],
+        })
+    active_symbols = sorted(valid["symbol"].dropna().astype(str).drop_duplicates().tolist())
+    universe_version = universe_fingerprint(valid)
+    active_payload = {
+        "version": universe_version,
+        "symbols": active_symbols,
+        "row_count": len(active_symbols),
+        "file_name": file_name,
+        "imported_at": pd.Timestamp.now(tz="Asia/Shanghai").isoformat(),
+    }
+    with connect(DEFAULT_DB_PATH) as conn:
+        upsert_rows(conn, "security_master", rows)
+        upsert_rows(conn, "research_settings", [{
+            "setting_key": "active_universe",
+            "value_json": json.dumps(active_payload, ensure_ascii=False),
+            "updated_at": active_payload["imported_at"],
+        }])
+    st.session_state["yahoo_symbols_text"] = ", ".join(active_symbols)
+    return len(rows), invalid, universe_version
+
+
+def finish_universe_import(row_count: int, invalid: pd.DataFrame, universe_version: str) -> None:
+    st.session_state["universe_import_notice"] = (
+        f"写入 {row_count} 只证券；无效 {len(invalid)} 只。当前活动证券池版本：{universe_version}。"
+    )
+    if not invalid.empty:
+        st.session_state["universe_invalid_records"] = invalid[["raw_symbol", "symbol_error"]].to_dict("records")
+    st.rerun()
+
+
 st.markdown("#### 证券池导入")
-universe_file = st.file_uploader("上传证券池 CSV", type=["csv"], help="必须包含 symbol、name、sector、security_type、board、index_membership、effective_date、end_date、source")
-if universe_file and st.button("校验并写入证券池", type="primary"):
+st.caption("客户演示建议使用内置证券池：无需调用浏览器文件上传模块，且内容与2026-08-20官方已生效的恒指及国企指数并集一致。")
+if st.button("一键载入内置最新证券池（102只）", type="primary"):
     try:
-        universe = validate_universe_csv(pd.read_csv(universe_file, dtype={"symbol": str}))
-        invalid = universe[universe["symbol_error"].notna()]
-        valid = universe[universe["symbol_error"].isna()].copy()
-        rows = []
-        for row in valid.to_dict("records"):
-            rows.append({
-                "symbol": row["symbol"], "raw_symbol": row["raw_symbol"], "name": row["name"], "sector": row["sector"],
-                "listing_date": None, "security_type": row["security_type"], "board": row["board"],
-                "index_membership": row["index_membership"], "effective_date": row["effective_date"], "end_date": row["end_date"], "source": row["source"],
-            })
-        active_symbols = sorted(valid["symbol"].dropna().astype(str).drop_duplicates().tolist())
-        universe_version = universe_fingerprint(valid)
-        active_payload = {
-            "version": universe_version,
-            "symbols": active_symbols,
-            "row_count": len(active_symbols),
-            "file_name": universe_file.name,
-            "imported_at": pd.Timestamp.now(tz="Asia/Shanghai").isoformat(),
-        }
-        with connect(DEFAULT_DB_PATH) as conn:
-            upsert_rows(conn, "security_master", rows)
-            upsert_rows(conn, "research_settings", [{
-                "setting_key": "active_universe",
-                "value_json": json.dumps(active_payload, ensure_ascii=False),
-                "updated_at": active_payload["imported_at"],
-            }])
-        st.session_state["yahoo_symbols_text"] = ", ".join(valid["symbol"].dropna().astype(str).drop_duplicates())
-        st.success(f"写入 {len(rows)} 只证券；无效 {len(invalid)} 只。当前活动证券池版本：{universe_version}。")
-        if not invalid.empty:
-            st.dataframe(localized_frame(invalid[["raw_symbol", "symbol_error"]]), use_container_width=True)
+        builtin_frame = pd.read_csv(BUILTIN_UNIVERSE_PATH, dtype={"symbol": str})
+        finish_universe_import(*persist_universe(builtin_frame, BUILTIN_UNIVERSE_PATH.name))
     except Exception as exc:
-        st.error(str(exc))
+        st.error(f"内置证券池载入失败：{exc}")
+
+if st.button("显示或隐藏自定义证券池 CSV 上传工具"):
+    st.session_state["show_custom_universe_upload"] = not st.session_state.get("show_custom_universe_upload", False)
+if st.session_state.get("show_custom_universe_upload", False):
+    universe_file = st.file_uploader(
+        "上传证券池 CSV", type=["csv"], key="custom_universe_upload",
+        help="必须包含 symbol、name、sector、security_type、board、index_membership、effective_date、end_date、source",
+    )
+    if universe_file and st.button("校验并写入自定义证券池"):
+        try:
+            custom_frame = pd.read_csv(universe_file, dtype={"symbol": str})
+            finish_universe_import(*persist_universe(custom_frame, universe_file.name))
+        except Exception as exc:
+            st.error(str(exc))
 
 st.markdown("#### 手动 Yahoo 更新")
 securities = read_table("security_master", DEFAULT_DB_PATH)
@@ -231,21 +267,27 @@ if st.button("生成所选下载文件"):
             f"下载 {export_kind}", payload, file_name=filename, mime=mime,
             on_click="ignore",
         )
-backup = st.file_uploader("上传 SQLite 备份恢复（将替换当前运行缓存）", type=["sqlite", "sqlite3", "db"])
-if backup and st.button("检查并恢复 SQLite"):
-    try:
-        restore_database(backup.getvalue(), DEFAULT_DB_PATH)
-        for key in list(st.session_state):
-            if key.startswith((
-                "main_board_only_", "exclude_gem_", "allow_reit_",
-                "min_price_hkd_", "min_listing_days_",
-                "min_valid_trading_ratio_60d_", "max_suspension_days_",
-                "min_avg_traded_value_20d_", "min_free_float_market_cap_",
-                "weight_",
-            )) or key in {"yahoo_symbols_text", "active_experiment_id"}:
-                del st.session_state[key]
-        st.session_state["database_restore_complete"] = True
-        st.rerun()
-    except Exception as exc:
-        st.error(str(exc))
+if st.button("显示或隐藏 SQLite 备份恢复工具"):
+    st.session_state["show_database_restore"] = not st.session_state.get("show_database_restore", False)
+if st.session_state.get("show_database_restore", False):
+    backup = st.file_uploader(
+        "上传 SQLite 备份恢复（将替换当前运行缓存）",
+        type=["sqlite", "sqlite3", "db"], key="database_restore_upload",
+    )
+    if backup and st.button("检查并恢复 SQLite"):
+        try:
+            restore_database(backup.getvalue(), DEFAULT_DB_PATH)
+            for key in list(st.session_state):
+                if key.startswith((
+                    "main_board_only_", "exclude_gem_", "allow_reit_",
+                    "min_price_hkd_", "min_listing_days_",
+                    "min_valid_trading_ratio_60d_", "max_suspension_days_",
+                    "min_avg_traded_value_20d_", "min_free_float_market_cap_",
+                    "weight_",
+                )) or key in {"yahoo_symbols_text", "active_experiment_id"}:
+                    del st.session_state[key]
+            st.session_state["database_restore_complete"] = True
+            st.rerun()
+        except Exception as exc:
+            st.error(str(exc))
 yahoo_notice()

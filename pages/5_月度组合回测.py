@@ -100,11 +100,19 @@ controls = st.columns(5)
 mode_options = ["因子增强模型", "文章方案一基准"]
 saved_mode = "文章方案一基准" if saved_backtest.get("portfolio_method") == "article" else "因子增强模型"
 mode = controls[0].selectbox("组合模型", mode_options, index=mode_options.index(saved_mode), disabled=locked)
-top_n = controls[1].slider("每月入选数量", 3, 15, int(saved_backtest.get("selected_count", 10)), disabled=locked)
+top_n = controls[1].number_input(
+    "每月入选数量", 3, 15,
+    int(saved_backtest.get("selected_count", 10)), 1,
+    disabled=locked,
+)
 saved_start = pd.to_datetime(saved_backtest.get("backtest_start"), errors="coerce")
 backtest_start = controls[2].date_input("回测开始日期", value=saved_start.date() if pd.notna(saved_start) else date(2016, 1, 1), disabled=locked)
 cost = controls[3].number_input("单边交易成本", 0.0, 0.02, float(saved_backtest.get("transaction_cost", 0.001)), 0.0001, format="%.4f", disabled=locked)
-max_stock = controls[4].slider("单股上限", 0.01, 0.20, float(saved_backtest.get("max_stock_weight", RISK_DEFAULTS["max_stock_weight"])), 0.01, disabled=locked)
+max_stock = controls[4].number_input(
+    "单股上限", 0.01, 0.20,
+    float(saved_backtest.get("max_stock_weight", RISK_DEFAULTS["max_stock_weight"])),
+    0.01, format="%.2f", disabled=locked,
+)
 
 mix_cols = st.columns(2)
 dividend_pct = mix_cols[0].number_input("股息率配置比例（%）", 0, 100, int(saved_backtest.get("dividend_pct", 50)), 5, disabled=locked or mode == "文章方案一基准")

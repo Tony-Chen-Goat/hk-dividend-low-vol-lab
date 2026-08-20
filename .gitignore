@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.test-tmp/
 .venv/
 .env
 .streamlit/secrets.toml
@@ -8,5 +9,6 @@ data/*.sqlite*
 data/*.db
 data/*.csv
 !data/sample_hk_universe.csv
+!data/current_hsi_hscei_universe.csv
 outputs/
 dist/

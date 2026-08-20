@@ -9,7 +9,8 @@ from app.database import connect, initialize_database, upsert_rows
 def test_streamlit_runtime_is_exactly_pinned():
     requirements = (Path(__file__).parents[1] / "requirements.txt").read_text(encoding="utf-8").splitlines()
     streamlit_requirements = [line.strip() for line in requirements if line.strip().startswith("streamlit")]
-    assert streamlit_requirements == ["streamlit==1.61.1"]
+    assert streamlit_requirements == ["streamlit==1.60.0"]
+    assert "starlette<1.4.0" in requirements
 
 
 def test_rolling_deploy_fingerprint_fallback(monkeypatch):

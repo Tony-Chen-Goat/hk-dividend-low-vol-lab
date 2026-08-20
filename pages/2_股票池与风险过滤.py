@@ -75,7 +75,11 @@ with st.form(f"risk_filter_form_{model_name}"):
     }
     cols2 = st.columns(4)
     candidate_settings.update({
-        "min_valid_trading_ratio_60d": cols2[0].slider("60日有效交易比例", 0.0, 1.0, float(saved_settings["min_valid_trading_ratio_60d"]), key=f"min_valid_trading_ratio_60d_{model_name}"),
+        "min_valid_trading_ratio_60d": cols2[0].number_input(
+            "60日有效交易比例", 0.0, 1.0,
+            float(saved_settings["min_valid_trading_ratio_60d"]), 0.05,
+            format="%.2f", key=f"min_valid_trading_ratio_60d_{model_name}",
+        ),
         "max_suspension_days": cols2[1].number_input("最长连续停牌日", 0, value=int(saved_settings["max_suspension_days"]), key=f"max_suspension_days_{model_name}"),
         "min_avg_traded_value_20d": cols2[2].number_input("最低20日平均成交额", 0.0, value=float(saved_settings["min_avg_traded_value_20d"]), format="%.0f", key=f"min_avg_traded_value_20d_{model_name}"),
         "min_free_float_market_cap": cols2[3].number_input("最低自由流通市值", 0.0, value=float(saved_settings["min_free_float_market_cap"]), format="%.0f", key=f"min_free_float_market_cap_{model_name}"),
