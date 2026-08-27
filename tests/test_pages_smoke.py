@@ -33,3 +33,10 @@ def test_builtin_demo_universe_is_valid_and_complete():
 def test_demo_pages_do_not_use_lazy_slider_component():
     page_source = "\n".join(path.read_text(encoding="utf-8") for path in PAGE_FILES)
     assert ".slider(" not in page_source
+
+
+def test_risk_page_avoids_unstable_dataframe_frontend_bundle():
+    source = (PROJECT_ROOT / "pages" / "2_股票池与风险过滤.py").read_text(encoding="utf-8")
+
+    assert ".dataframe(" not in source
+    assert "stable_html_table" in source

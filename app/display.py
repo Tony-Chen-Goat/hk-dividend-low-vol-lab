@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from html import escape
+
 import pandas as pd
 
 from .config import FACTOR_LABELS
@@ -140,6 +142,42 @@ def localized_frame(frame: pd.DataFrame) -> pd.DataFrame:
 
 def localized_csv(frame: pd.DataFrame) -> bytes:
     return localized_frame(frame).to_csv(index=False).encode("utf-8-sig")
+
+
+def _html_cell(value: object) -> str:
+    if value is None or (not isinstance(value, (list, tuple, dict, set)) and pd.isna(value)):
+        return ""
+    if isinstance(value, pd.Timestamp):
+        value = value.isoformat(sep=" ")
+    elif isinstance(value, float):
+        value = f"{value:.6g}"
+    return escape(str(value), quote=True)
+
+
+def stable_html_table(frame: pd.DataFrame, max_rows: int = 250) -> str:
+    """Render a bounded, escaped HTML table without Streamlit's DataFrame JS bundle."""
+    if frame.empty:
+        return '<div class="stable-table-empty">暂无记录</div>'
+
+    row_limit = max(1, int(max_rows))
+    visible = frame.head(row_limit)
+    headers = "".join(f"<th>{escape(str(column), quote=True)}</th>" for column in visible.columns)
+    rows = "".join(
+        "<tr>" + "".join(f"<td>{_html_cell(value)}</td>" for value in row) + "</tr>"
+        for row in visible.itertuples(index=False, name=None)
+    )
+    note = ""
+    if len(frame) > len(visible):
+        note = (
+            '<div class="stable-table-note">'
+            f"当前显示前 {len(visible):,} 行，共 {len(frame):,} 行；完整数据请使用下方 CSV 下载。"
+            "</div>"
+        )
+    return (
+        '<div class="stable-table-wrap"><table class="stable-table">'
+        f"<thead><tr>{headers}</tr></thead><tbody>{rows}</tbody>"
+        f"</table></div>{note}"
+    )
 
 
 def canonicalize_columns(frame: pd.DataFrame) -> pd.DataFrame:

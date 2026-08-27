@@ -24,6 +24,14 @@ CSS = """
   .warning-box { border-left:4px solid var(--warn); background:#FFF5E9; padding:.8rem 1rem; border-radius:.35rem; }
   div[data-testid="stMetric"] { background:#FFFDF8; border:1px solid #DDE3DC; padding:1rem; border-radius:.65rem; }
   div[data-testid="stDataFrame"] { border:1px solid #D9DED8; border-radius:.55rem; overflow:hidden; }
+  .stable-table-wrap { max-height:34rem; overflow:auto; background:#FFFDF8; border:1px solid #D9DED8; border-radius:.55rem; }
+  .stable-table { width:100%; border-collapse:separate; border-spacing:0; font-size:.86rem; }
+  .stable-table th { position:sticky; top:0; z-index:1; padding:.7rem .8rem; color:#44534D; background:#EDF1EF; border-bottom:1px solid #D9DED8; text-align:left; white-space:nowrap; }
+  .stable-table td { padding:.62rem .8rem; border-bottom:1px solid #E6EAE5; vertical-align:top; white-space:nowrap; }
+  .stable-table tbody tr:nth-child(even) { background:#FAFBF8; }
+  .stable-table tbody tr:hover { background:#F1F6F2; }
+  .stable-table-empty { padding:1rem; color:var(--muted); background:#FFFDF8; border:1px solid #D9DED8; border-radius:.55rem; }
+  .stable-table-note { margin:.4rem 0 0; color:var(--muted); font-size:.78rem; }
 </style>
 """
 
