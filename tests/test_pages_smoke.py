@@ -39,4 +39,5 @@ def test_risk_page_avoids_unstable_dataframe_frontend_bundle():
     source = (PROJECT_ROOT / "pages" / "2_股票池与风险过滤.py").read_text(encoding="utf-8")
 
     assert ".dataframe(" not in source
-    assert "stable_html_table" in source
+    assert "_stable_html_table" in source
+    assert "from app.display import localized_csv, localized_frame, stable_html_table" not in source

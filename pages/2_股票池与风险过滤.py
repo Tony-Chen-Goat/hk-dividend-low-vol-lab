@@ -5,10 +5,22 @@ import streamlit as st
 
 from app.config import DEFAULT_DB_PATH, MODEL_FULL_13, MODEL_LABELS, MODEL_YAHOO_10
 from app.database import load_setting, read_table, save_setting
-from app.display import localized_csv, localized_frame, stable_html_table
+from app.display import localized_csv, localized_frame
 from app.stability import read_recent_stock_prices, resolve_stock_data_cutoff, risk_snapshot_fingerprint
 from app.ui import empty_state, setup_page
 from app.universe import apply_hk_risk_filters, build_risk_snapshot, default_filter_settings
+
+
+def _stable_html_table(frame: pd.DataFrame, max_rows: int = 250) -> str:
+    """Keep this renderer page-local so Streamlit hot deploys cannot cache an older import."""
+    if frame.empty:
+        return '<div class="stable-table-empty">暂无记录</div>'
+    visible = frame.head(max(1, int(max_rows)))
+    table = visible.to_html(index=False, escape=True, border=0, classes="stable-table", na_rep="")
+    note = ""
+    if len(frame) > len(visible):
+        note = f'<div class="stable-table-note">当前显示前 {len(visible):,} 行，共 {len(frame):,} 行；完整数据请使用下方 CSV 下载。</div>'
+    return f'<div class="stable-table-wrap">{table}</div>{note}'
 
 
 setup_page("股票池与风险过滤", "🧹")
@@ -116,7 +128,7 @@ a.metric("筛选前", len(snapshot))
 b.metric("筛选后", len(result.included))
 c.metric("被排除", len(result.excluded))
 st.markdown("#### 入选股票")
-st.markdown(stable_html_table(localized_frame(result.included)), unsafe_allow_html=True)
+st.markdown(_stable_html_table(localized_frame(result.included)), unsafe_allow_html=True)
 download_cols = st.columns(2)
 download_cols[0].download_button("下载标准字段CSV", result.included.to_csv(index=False).encode("utf-8-sig"), "included_universe.csv")
 download_cols[1].download_button("下载中文字段CSV", localized_csv(result.included), "included_universe_cn.csv")
@@ -126,7 +138,7 @@ if result.excluded.empty:
     st.success("当前没有股票被排除。")
 else:
     excluded_display = result.excluded[[column for column in ["symbol", "name", "sector", "exclusion_reasons"] if column in result.excluded]]
-    st.markdown(stable_html_table(localized_frame(excluded_display)), unsafe_allow_html=True)
+    st.markdown(_stable_html_table(localized_frame(excluded_display)), unsafe_allow_html=True)
 st.markdown("#### 什么情况下股票仍会被排除")
 st.write("即使允许REIT，股票仍可能因以下风险被排除：非主板或GEM、不支持的结构化证券类型、上市历史不足、股价过低、近60日交易活跃度不足、连续停牌超限、最近一年停止派息或大幅削减股息、20日平均成交额不足、完整13因子模式下自由流通市值缺失，以及退市、清盘、私有化或长期停牌事件已经生效。")
 st.caption("REIT分派与普通公司股息的经济性质不同，可能受租金收入、利率、资产估值、负债与配售影响；放行仅代表进入量化候选池，最终仍需人工复核公告。港股不使用A股ST制度。")
