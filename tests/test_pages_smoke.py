@@ -41,3 +41,11 @@ def test_risk_page_avoids_unstable_dataframe_frontend_bundle():
     assert ".dataframe(" not in source
     assert "_stable_html_table" in source
     assert "from app.display import localized_csv, localized_frame, stable_html_table" not in source
+
+
+def test_latest_results_keeps_entry_labels_page_local_for_hot_deploys():
+    source = (PROJECT_ROOT / "pages" / "7_最新选股结果.py").read_text(encoding="utf-8")
+
+    assert "ENTRY_LABELS" in source
+    assert '"reference_price": "参考买点（港元）"' in source
+    assert '"entry_guidance": "买点参考说明"' in source

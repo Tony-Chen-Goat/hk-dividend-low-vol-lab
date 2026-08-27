@@ -13,6 +13,23 @@ from app.stability import read_recent_stock_prices, resolve_stock_data_cutoff
 from app.ui import empty_state, setup_page
 
 
+ENTRY_LABELS = {
+    "signal_as_of": "信号数据日",
+    "latest_price": "最新收盘价（港元）",
+    "ma5": "5日均线（港元）",
+    "ma20": "20日均线（港元）",
+    "return_20d": "近20日涨跌幅",
+    "trend_strength": "趋势强弱",
+    "reference_ma": "参考均线",
+    "reference_price": "参考买点（港元）",
+    "reference_low": "观察区间下限（港元）",
+    "reference_high": "观察区间上限（港元）",
+    "price_vs_reference": "现价相对参考线",
+    "entry_guidance": "买点参考说明",
+    "price_data_points": "有效价格样本数",
+}
+
+
 def _stable_html_table(frame: pd.DataFrame) -> str:
     if frame.empty:
         return '<div class="stable-table-empty">暂无可显示记录</div>'
@@ -109,10 +126,11 @@ else:
             lambda value: f"{value:.1%}" if pd.notna(value) else "—"
         )
     entry_display["signal_as_of"] = pd.to_datetime(entry_display["signal_as_of"], errors="coerce").dt.date
-    st.markdown(_stable_html_table(localized_frame(entry_display)), unsafe_allow_html=True)
+    entry_display = localized_frame(entry_display).rename(columns=ENTRY_LABELS)
+    st.markdown(_stable_html_table(entry_display), unsafe_allow_html=True)
 download_cols = st.columns(2)
 download_cols[0].download_button("下载标准字段CSV", portfolio.to_csv(index=False).encode("utf-8-sig"), f"latest_selection_{latest_month.date()}.csv")
-download_cols[1].download_button("下载中文字段CSV", localized_csv(portfolio), f"latest_selection_{latest_month.date()}_cn.csv")
+download_cols[1].download_button("下载中文字段CSV", localized_csv(portfolio.rename(columns=ENTRY_LABELS)), f"latest_selection_{latest_month.date()}_cn.csv")
 st.markdown("#### 人工复核与建仓留档")
 st.write("当前名单已经通过该实验的风险过滤，不需要再上传另一份CSV取交集。正式建仓前仍应人工复核最新公告、盈利预警、供股配股、私有化、停牌、派息可持续性和实际成交能力。")
 review = portfolio[[column for column in ["symbol", "name", "sector", "model_score", "target_weight", "reference_ma", "reference_price", "entry_guidance"] if column in portfolio]].copy()
@@ -120,6 +138,6 @@ review["announcement_review_status"] = "待复核"
 review["approved_for_build"] = False
 review["manual_target_weight"] = review.get("target_weight", 0.0)
 review["manual_note"] = ""
-review = st.data_editor(localized_frame(review), use_container_width=True, hide_index=True)
+review = st.data_editor(localized_frame(review).rename(columns=ENTRY_LABELS), use_container_width=True, hide_index=True)
 st.download_button("下载人工复核建仓清单", review.to_csv(index=False).encode("utf-8-sig"), f"build_review_{experiment_id}_{latest_month.date()}.csv")
 st.caption("因子评分权重与资金配置权重相互独立。历史回测表现不是预估收益；缺失数据不会被填成可通过筛选的默认值，约束无法满足时保留现金。")
