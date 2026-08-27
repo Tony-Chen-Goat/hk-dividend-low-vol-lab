@@ -5,10 +5,19 @@ import streamlit as st
 
 from app.config import DEFAULT_DB_PATH, MODEL_FACTOR_WEIGHTS, MODEL_LABELS, RISK_DEFAULTS
 from app.display import localized_csv, localized_frame
+from app.entry_points import calculate_entry_references
 from app.experiment_store import get_experiment, list_experiments
 from app.portfolio import build_enhanced_portfolio
 from app.research_pipeline import load_feature_panel
+from app.stability import read_recent_stock_prices, resolve_stock_data_cutoff
 from app.ui import empty_state, setup_page
+
+
+def _stable_html_table(frame: pd.DataFrame) -> str:
+    if frame.empty:
+        return '<div class="stable-table-empty">暂无可显示记录</div>'
+    table = frame.to_html(index=False, escape=True, border=0, classes="stable-table", na_rep="—")
+    return f'<div class="stable-table-wrap">{table}</div>'
 
 
 setup_page("最新选股结果", "🔎")
@@ -58,6 +67,19 @@ portfolio = build_enhanced_portfolio(
 )
 portfolio = portfolio.sort_values("model_score", ascending=False).reset_index(drop=True)
 portfolio.insert(0, "排名", range(1, len(portfolio) + 1))
+entry_symbols = portfolio.loc[portfolio["target_weight"] > 0, "symbol"].head(10).astype(str).tolist()
+entry_prices = pd.DataFrame()
+if entry_symbols:
+    entry_cutoff = resolve_stock_data_cutoff(DEFAULT_DB_PATH, entry_symbols).get("as_of")
+    entry_prices = read_recent_stock_prices(
+        DEFAULT_DB_PATH, 60, symbols=entry_symbols, as_of=entry_cutoff,
+    )
+entry_references = calculate_entry_references(portfolio, entry_prices, limit=10)
+if not entry_references.empty:
+    reference_columns = [column for column in entry_references if column != "symbol"]
+    reference_lookup = entry_references.set_index("symbol")
+    for column in reference_columns:
+        portfolio[column] = portfolio["symbol"].astype(str).map(reference_lookup[column])
 st.markdown(f'<span class="oos-tag">因子月末 {latest_month.date().isoformat()}</span>', unsafe_allow_html=True)
 cols = st.columns(4)
 cols[0].metric("候选股票", len(latest))
@@ -67,12 +89,33 @@ cols[3].metric("保留现金", f"{portfolio['cash_weight'].sum():.1%}")
 display = ["排名", "symbol", "name", "sector", "model_score", "factor_coverage", "target_weight", "constraint_note"] + [factor for factor in MODEL_FACTOR_WEIGHTS[model_name] if factor in portfolio]
 localized = localized_frame(portfolio[display])
 st.dataframe(localized, use_container_width=True, hide_index=True, column_config={"建议目标权重": st.column_config.ProgressColumn("建议目标权重", format="percent", min_value=0, max_value=max_stock), "因子数据覆盖率": st.column_config.ProgressColumn("因子数据覆盖率", format="percent", min_value=0, max_value=1)})
+st.markdown("#### 前10只入选股票的均线买点参考")
+st.info("固定研究规则：5日均线高于20日均线且近20日收益为正时，按短线趋势较强处理并参考5日线；其他情况参考20日线。观察区间为参考均线上下1%。这是一项技术面辅助信息，不是收益预测或自动买入指令。")
+if entry_references.empty:
+    st.warning("当前入选股票缺少足够的近期价格数据，暂时无法生成均线买点参考。")
+else:
+    entry_display = portfolio.loc[
+        portfolio["symbol"].astype(str).isin(entry_symbols),
+        [
+            "排名", "symbol", "name", "signal_as_of", "latest_price", "ma5", "ma20",
+            "return_20d", "trend_strength", "reference_ma", "reference_price",
+            "reference_low", "reference_high", "price_vs_reference", "entry_guidance",
+        ],
+    ].copy()
+    for column in ["latest_price", "ma5", "ma20", "reference_price", "reference_low", "reference_high"]:
+        entry_display[column] = pd.to_numeric(entry_display[column], errors="coerce").round(3)
+    for column in ["return_20d", "price_vs_reference"]:
+        entry_display[column] = pd.to_numeric(entry_display[column], errors="coerce").map(
+            lambda value: f"{value:.1%}" if pd.notna(value) else "—"
+        )
+    entry_display["signal_as_of"] = pd.to_datetime(entry_display["signal_as_of"], errors="coerce").dt.date
+    st.markdown(_stable_html_table(localized_frame(entry_display)), unsafe_allow_html=True)
 download_cols = st.columns(2)
 download_cols[0].download_button("下载标准字段CSV", portfolio.to_csv(index=False).encode("utf-8-sig"), f"latest_selection_{latest_month.date()}.csv")
 download_cols[1].download_button("下载中文字段CSV", localized_csv(portfolio), f"latest_selection_{latest_month.date()}_cn.csv")
 st.markdown("#### 人工复核与建仓留档")
 st.write("当前名单已经通过该实验的风险过滤，不需要再上传另一份CSV取交集。正式建仓前仍应人工复核最新公告、盈利预警、供股配股、私有化、停牌、派息可持续性和实际成交能力。")
-review = portfolio[[column for column in ["symbol", "name", "sector", "model_score", "target_weight"] if column in portfolio]].copy()
+review = portfolio[[column for column in ["symbol", "name", "sector", "model_score", "target_weight", "reference_ma", "reference_price", "entry_guidance"] if column in portfolio]].copy()
 review["announcement_review_status"] = "待复核"
 review["approved_for_build"] = False
 review["manual_target_weight"] = review.get("target_weight", 0.0)
