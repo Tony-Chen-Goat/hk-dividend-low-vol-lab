@@ -7,9 +7,10 @@ import pandas as pd
 import streamlit as st
 
 from app.config import BENCHMARKS, DATA_DIR, DEFAULT_DB_PATH
+from app.cloud_persistence import read_latest_manifest, resolve_cloud_config, restore_database_from_cloud
 from app.database import connect, export_table_csv, load_setting, read_table, restore_database, save_setting, table_counts, upsert_rows
 from app.display import localized_frame
-from app.ui import cloud_storage_notice, setup_page, yahoo_notice
+from app.ui import cloud_storage_notice, persist_cloud_database, setup_page, yahoo_notice
 from app.stability import universe_fingerprint
 from app.universe import validate_universe_csv
 from app.yahoo_provider import fetch_benchmark_prices, fetch_yahoo_data
@@ -72,6 +73,7 @@ def finish_universe_import(row_count: int, invalid: pd.DataFrame, universe_versi
     )
     if not invalid.empty:
         st.session_state["universe_invalid_records"] = invalid[["raw_symbol", "symbol_error"]].to_dict("records")
+    persist_cloud_database("universe_import")
     st.rerun()
 
 
@@ -195,6 +197,7 @@ if st.button("开始更新 Yahoo 数据", type="primary"):
                 DEFAULT_DB_PATH,
             )
             st.success(f"更新完成：价格 {result.price_row_count:,} 行，分红 {result.dividend_row_count:,} 行，公司行动 {result.action_row_count:,} 行。")
+            persist_cloud_database("yahoo_market_data_update")
             if result.failures:
                 st.warning("部分股票失败，任务其余部分已保存。")
                 st.dataframe(localized_frame(pd.DataFrame([failure.__dict__ for failure in result.failures])), use_container_width=True)
@@ -234,6 +237,7 @@ if st.button("更新已验证基准指数（恒指 / 国企指数）"):
             DEFAULT_DB_PATH,
         )
         st.success(f"基准更新完成：{len(benchmark_prices):,} 行。")
+        persist_cloud_database("benchmark_data_update")
         if failures:
             st.warning("；".join(f"{item.symbol}: {item.reason}" for item in failures))
     except Exception as exc:
@@ -242,6 +246,50 @@ st.caption("Yahoo 基准代码 ^HSI 与 ^HSCE 已于 2026-08-06 通过五日只�
 
 st.markdown("#### 导入导出与缓存备份")
 cloud_storage_notice()
+cloud_config = resolve_cloud_config(st.secrets)
+if cloud_config.configured:
+    st.success(f"云端持久化已启用：私有存储桶 `{cloud_config.bucket}`。密钥只从 Streamlit Secrets 读取，不会显示在页面或写入数据库。")
+    cloud_actions = st.columns(2)
+    if cloud_actions[0].button("立即备份到云端", type="primary"):
+        result = persist_cloud_database("manual_backup")
+        if result.ok:
+            st.success(result.message)
+        else:
+            st.error(result.message)
+    if cloud_actions[1].button("检查云端最新备份"):
+        try:
+            manifest = read_latest_manifest(cloud_config)
+            if manifest:
+                st.info(
+                    f"最新云端备份：{manifest.get('created_at', '未知时间')}；"
+                    f"原因：{manifest.get('reason', '未知')}；"
+                    f"完整大小：{int(manifest.get('raw_size', 0)) / 1024 / 1024:.1f} MB；"
+                    f"{'受保护正式版本' if manifest.get('protected') else '普通版本'}。"
+                )
+            else:
+                st.info("云端尚无数据库备份，可点击左侧按钮创建第一份。")
+        except Exception as exc:
+            st.error(f"读取云端备份状态失败：{exc}")
+    confirm_cloud_restore = st.checkbox("我确认从云端恢复会替换当前运行缓存（云端历史文件不会被删除）")
+    if st.button("从云端恢复最新数据库", disabled=not confirm_cloud_restore):
+        result = restore_database_from_cloud(DEFAULT_DB_PATH, st.secrets, force=True)
+        if result.ok and result.action == "restore":
+            for key in list(st.session_state):
+                if key.startswith((
+                    "main_board_only_", "exclude_gem_", "allow_reit_",
+                    "min_price_hkd_", "min_listing_days_",
+                    "min_valid_trading_ratio_60d_", "max_suspension_days_",
+                    "min_avg_traded_value_20d_", "min_free_float_market_cap_",
+                    "weight_",
+                )) or key in {"yahoo_symbols_text", "active_experiment_id"}:
+                    del st.session_state[key]
+            st.session_state["database_restore_complete"] = True
+            st.session_state["cloud_persistence_notice"] = ("success", result.message)
+            st.rerun()
+        else:
+            st.error(result.message)
+else:
+    st.warning("云端持久化尚未启用。请按 README 的说明配置 SUPABASE_URL、SUPABASE_SERVICE_ROLE_KEY 与 SUPABASE_STORAGE_BUCKET；在此之前请继续下载 SQLite 离线备份。")
 st.caption("为避免大型价格表在每次页面刷新时占用内存，导出文件只在明确点击后生成；完整留档优先选择SQLite备份。")
 export_kind = st.selectbox(
     "准备下载内容",
@@ -277,6 +325,7 @@ if st.session_state.get("show_database_restore", False):
     if backup and st.button("检查并恢复 SQLite"):
         try:
             restore_database(backup.getvalue(), DEFAULT_DB_PATH)
+            persist_cloud_database("manual_sqlite_restore", protected=True)
             for key in list(st.session_state):
                 if key.startswith((
                     "main_board_only_", "exclude_gem_", "allow_reit_",

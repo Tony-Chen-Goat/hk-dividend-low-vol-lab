@@ -17,7 +17,7 @@ from app.display import localized_frame
 from app.experiment_store import experiment_display_name, get_experiment, next_experiment_version_name
 from app.research_pipeline import available_experiments, compute_and_store_features, load_feature_panel
 from app.scoring import validate_weights
-from app.ui import empty_state, setup_page
+from app.ui import empty_state, persist_cloud_database, setup_page
 
 
 setup_page("因子实验室", "🧪")
@@ -79,6 +79,7 @@ if st.button("创建新实验并计算月度因子", type="primary", disabled=no
         else:
             experiment_id = str(panel["experiment_id"].iloc[0])
             st.session_state["active_experiment_id"] = experiment_id
+            persist_cloud_database("factor_experiment_completed")
             st.success(f"实验 {experiment_id} 已创建，保存 {len(panel):,} 个风险过滤后股票—月份快照。后续Rank IC与月度回测请选择同一实验编号。")
     except Exception as exc:
         st.error(str(exc))

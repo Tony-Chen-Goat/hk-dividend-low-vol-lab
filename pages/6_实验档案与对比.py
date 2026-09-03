@@ -15,7 +15,7 @@ from app.experiment_comparison import (
     factor_weight_comparison,
 )
 from app.experiment_store import approve_experiment, experiment_display_name, export_experiment_bundle, get_experiment, list_experiments
-from app.ui import empty_state, setup_page
+from app.ui import empty_state, persist_cloud_database, setup_page
 
 
 setup_page("实验档案与对比", "🗂️")
@@ -80,6 +80,7 @@ else:
             st.error("文章方案一基准只用于对照，不能批准为因子最新选股实验。请使用因子增强模型完成回测。")
         else:
             approve_experiment(selected, DEFAULT_DB_PATH)
+            persist_cloud_database("approved_experiment", protected=True)
             st.session_state["active_experiment_id"] = selected
             st.success("已批准。最新选股结果将只读取这个实验版本。")
     st.markdown("#### 两组实验对比")

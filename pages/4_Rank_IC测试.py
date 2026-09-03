@@ -10,7 +10,7 @@ from app.display import localized_frame
 from app.experiment_store import experiment_display_name, get_experiment, store_rank_ic_results
 from app.rank_ic import compare_factor_ics, ic_summary, monthly_rank_ic
 from app.research_pipeline import available_experiments, load_feature_panel
-from app.ui import empty_state, setup_page
+from app.ui import empty_state, persist_cloud_database, setup_page
 
 
 setup_page("Rank IC 测试", "📐")
@@ -77,6 +77,7 @@ score_columns = [f"{factor}__score" for factor in active_weights]
 comparison = compare_factor_ics(panel, score_columns)
 if save_rank_ic:
     store_rank_ic_results(experiment_id, monthly, summary, comparison, DEFAULT_DB_PATH)
+    persist_cloud_database("rank_ic_results")
     st.session_state["rank_ic_saved_notice"] = f"实验 {experiment_id} 的 Rank IC 测试已保存。"
     st.rerun()
 if not locked and int(minimum) != saved_minimum:

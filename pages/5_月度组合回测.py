@@ -21,7 +21,7 @@ from app.monthly_chart import (
     selected_month_from_chart_event,
 )
 from app.research_pipeline import available_experiments, backtest_from_panel, load_feature_panel
-from app.ui import empty_state, setup_page
+from app.ui import empty_state, persist_cloud_database, setup_page
 
 
 setup_page("月度组合回测", "📈")
@@ -195,6 +195,7 @@ if run_backtest:
         score,
         DEFAULT_DB_PATH,
     )
+    persist_cloud_database("monthly_backtest_completed")
     st.session_state["backtest_saved_notice"] = f"实验 {experiment_id} 的月度组合回测已重新计算并保存。"
     st.rerun()
 

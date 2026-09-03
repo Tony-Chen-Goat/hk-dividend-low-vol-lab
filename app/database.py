@@ -4,7 +4,7 @@ import json
 import shutil
 import sqlite3
 import re
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Iterable, Iterator, Mapping
 
@@ -592,7 +592,7 @@ def restore_database(uploaded_bytes: bytes, path: str | Path = DEFAULT_DB_PATH) 
     temp = target.with_suffix(".restore.tmp")
     temp.write_bytes(uploaded_bytes)
     try:
-        with sqlite3.connect(temp) as conn:
+        with closing(sqlite3.connect(temp)) as conn:
             result = conn.execute("PRAGMA integrity_check").fetchone()[0]
         if result != "ok":
             raise ValueError(f"SQLite 完整性检查失败: {result}")

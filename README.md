@@ -13,7 +13,24 @@ python -m pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-Streamlit Community Cloud 的主文件固定为 `streamlit_app.py`。项目不需要密钥；Yahoo 只在用户点击“开始更新 Yahoo 数据”后请求，不自动刷新。
+Streamlit Community Cloud 的主文件固定为 `streamlit_app.py`。Yahoo 只在用户点击“开始更新 Yahoo 数据”后请求，不自动刷新。
+
+### 配置永久云端备份（强烈建议）
+
+Streamlit 容器的本地文件会在休眠、重启或重新部署时丢失。生产环境使用一个 **Private** Supabase Storage bucket 保存 SQLite 的一致性快照；应用启动时会先恢复云端最新版，证券池导入、行情更新、风险规则、因子实验、Rank IC、回测和正式批准完成后会自动备份。
+
+1. 在 Supabase Dashboard 打开 Storage，创建 Private bucket，例如 `hk-dividend-low-vol-backups`。
+2. 在 Project Settings → API Keys 复制仅供服务端使用的 `service_role`/secret key。该密钥会绕过 Storage RLS，绝不能放入 Git、网页前端或公开日志。
+3. 在 Streamlit Community Cloud 的 App Settings → Secrets 增加：
+
+```toml
+SUPABASE_URL = "https://你的项目编号.supabase.co"
+SUPABASE_SERVICE_ROLE_KEY = "仅供服务端使用的service_role或secret key"
+SUPABASE_STORAGE_BUCKET = "hk-dividend-low-vol-backups"
+SUPABASE_STORAGE_PREFIX = "hk-dividend-low-vol"
+```
+
+系统为每次变化创建不可变的 `history/*.sqlite3.gz`，再更新 `latest/manifest.json`；恢复前会验证 SHA-256、文件大小和 SQLite `integrity_check`。批准正式实验时生成的快照会标记为 `protected`。数据中心可检查状态、立即备份或人工确认后恢复。系统不会自动删除历史云端快照；离线 SQLite 下载仍建议定期保留。若未配置上述 Secrets，云端功能会安全停用，不影响原有 SQLite 研究流程。
 
 部署环境固定使用 `Streamlit 1.60.0` 并显式限制 `Starlette < 1.4.0`。1.61.0 新增的 DataFrame 前端懒加载会扩大静态分片错配的影响面，因此客户演示版本回退到 1.60.0；页面中的滑块也改为数字步进输入。若恰逢依赖升级部署，已打开的旧标签页仍应关闭后重新打开，确保读取当前部署的完整资源清单。
 
@@ -41,7 +58,7 @@ Streamlit Community Cloud 的主文件固定为 `streamlit_app.py`。项目不�
 
 同一活动证券池版本、市场数据修订版、统一截止日和风险规则应得到相同结果。真实行情更新、修复失败股票或主动修改规则后，结果发生变化属于新的数据版本，不应与旧快照混为同一次计算。
 
-Streamlit Community Cloud 的本地 SQLite 只是运行缓存，不可视为永久存储。请定期下载数据库备份；应用重启后可在数据中心上传恢复。Yahoo/yfinance 可能限流、改字段或暂时失败，系统不会伪造数据，也不会以演示值替代结果。
+Streamlit Community Cloud 的本地 SQLite 只是运行缓存，不可视为永久存储。生产环境配置 Supabase 后会启动自动恢复并在关键操作后自动备份；仍建议定期下载 SQLite 做离线灾备。Yahoo/yfinance 可能限流、改字段或暂时失败，系统不会伪造数据，也不会以演示值替代结果。
 
 ## 模型与验证
 
