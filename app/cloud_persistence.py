@@ -135,7 +135,11 @@ class SupabaseStorageClient:
                     return response.read()
             except HTTPError as exc:
                 body = exc.read().decode("utf-8", errors="replace")[:500]
-                if exc.code == 404:
+                object_missing = exc.code == 404 or (
+                    exc.code == 400
+                    and ("NoSuchKey" in body or '"statusCode":"404"' in body)
+                )
+                if object_missing:
                     raise FileNotFoundError("云端对象不存在") from exc
                 if exc.code not in transient_codes or attempt == 2:
                     raise RuntimeError(f"Supabase Storage 请求失败（HTTP {exc.code}）：{body}") from exc

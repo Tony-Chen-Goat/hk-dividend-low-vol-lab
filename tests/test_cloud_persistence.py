@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import io
 import json
 import sqlite3
 from pathlib import Path
+from urllib.error import HTTPError
+
+import app.cloud_persistence as cloud_persistence
 
 from app.cloud_persistence import (
     CloudPersistenceConfig,
@@ -63,6 +67,24 @@ def test_new_secret_key_is_not_sent_as_bearer_token() -> None:
     headers = SupabaseStorageClient(config)._headers()
     assert headers["apikey"] == "sb_secret_example"
     assert "Authorization" not in headers
+
+
+def test_supabase_nosuchkey_response_is_treated_as_missing_object(monkeypatch) -> None:
+    client = cloud_persistence.SupabaseStorageClient(_config())
+    payload = b'{"statusCode":"404","error":"not_found","code":"NoSuchKey"}'
+
+    def missing_object(*args, **kwargs):
+        raise HTTPError(
+            "https://example.supabase.co/storage/v1/object/private-backups/missing",
+            400,
+            "Bad Request",
+            {},
+            io.BytesIO(payload),
+        )
+
+    monkeypatch.setattr(cloud_persistence, "urlopen", missing_object)
+
+    assert client.download("missing") is None
 
 
 def test_backup_and_restore_round_trip(tmp_path: Path) -> None:
