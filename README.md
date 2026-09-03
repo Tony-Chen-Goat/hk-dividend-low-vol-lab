@@ -25,12 +25,12 @@ Streamlit 容器的本地文件会在休眠、重启或重新部署时丢失。�
 
 ```toml
 SUPABASE_URL = "https://你的项目编号.supabase.co"
-SUPABASE_SERVICE_ROLE_KEY = "仅供服务端使用的service_role或secret key"
+SUPABASE_SECRET_KEY = "仅供服务端使用的sb_secret密钥"
 SUPABASE_STORAGE_BUCKET = "hk-dividend-low-vol-backups"
 SUPABASE_STORAGE_PREFIX = "hk-dividend-low-vol"
 ```
 
-系统为每次变化创建不可变的 `history/*.sqlite3.gz`，再更新 `latest/manifest.json`；恢复前会验证 SHA-256、文件大小和 SQLite `integrity_check`。批准正式实验时生成的快照会标记为 `protected`。数据中心可检查状态、立即备份或人工确认后恢复。系统不会自动删除历史云端快照；离线 SQLite 下载仍建议定期保留。若未配置上述 Secrets，云端功能会安全停用，不影响原有 SQLite 研究流程。
+系统为每次变化创建不可变的 `history/*.sqlite3.gz`，再更新 `latest/manifest.json`；恢复前会验证 SHA-256、文件大小和 SQLite `integrity_check`。批准正式实验时生成的快照会标记为 `protected`。数据中心可检查状态、立即备份或人工确认后恢复。系统不会自动删除历史云端快照；离线 SQLite 下载仍建议定期保留。若旧项目只有 JWT 格式的 `service_role`，也可继续使用 `SUPABASE_SERVICE_ROLE_KEY`；新项目优先使用 `SUPABASE_SECRET_KEY`。若未配置上述 Secrets，云端功能会安全停用，不影响原有 SQLite 研究流程。
 
 部署环境固定使用 `Streamlit 1.60.0` 并显式限制 `Starlette < 1.4.0`。1.61.0 新增的 DataFrame 前端懒加载会扩大静态分片错配的影响面，因此客户演示版本回退到 1.60.0；页面中的滑块也改为数字步进输入。若恰逢依赖升级部署，已打开的旧标签页仍应关闭后重新打开，确保读取当前部署的完整资源清单。
 

@@ -78,7 +78,7 @@ def resolve_cloud_config(secrets: Mapping[str, Any] | None = None) -> CloudPersi
         timeout = 120
     return CloudPersistenceConfig(
         url=value("SUPABASE_URL").rstrip("/"),
-        service_key=value("SUPABASE_SERVICE_ROLE_KEY"),
+        service_key=value("SUPABASE_SECRET_KEY") or value("SUPABASE_SERVICE_ROLE_KEY"),
         bucket=value("SUPABASE_STORAGE_BUCKET", "hk-dividend-low-vol-backups"),
         prefix=value("SUPABASE_STORAGE_PREFIX", "hk-dividend-low-vol").strip("/"),
         timeout_seconds=timeout,
@@ -90,11 +90,11 @@ class SupabaseStorageClient:
         self.config = config
 
     def _headers(self, content_type: str | None = None) -> dict[str, str]:
-        headers = {
-            "Authorization": f"Bearer {self.config.service_key}",
-            "apikey": self.config.service_key,
-            "Cache-Control": "no-store",
-        }
+        headers = {"apikey": self.config.service_key, "Cache-Control": "no-store"}
+        # New sb_secret_* keys are opaque API keys and must not be sent as Bearer tokens.
+        # Legacy service_role JWTs still require Authorization for Storage compatibility.
+        if not self.config.service_key.startswith("sb_secret_"):
+            headers["Authorization"] = f"Bearer {self.config.service_key}"
         if content_type:
             headers["Content-Type"] = content_type
         return headers

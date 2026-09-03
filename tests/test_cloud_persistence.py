@@ -52,6 +52,19 @@ def test_config_supports_nested_streamlit_secrets() -> None:
     assert config.bucket == "lab-backups"
 
 
+def test_new_secret_key_is_not_sent_as_bearer_token() -> None:
+    from app.cloud_persistence import SupabaseStorageClient
+
+    config = CloudPersistenceConfig(
+        url="https://example.supabase.co",
+        service_key="sb_secret_example",
+        bucket="private-backups",
+    )
+    headers = SupabaseStorageClient(config)._headers()
+    assert headers["apikey"] == "sb_secret_example"
+    assert "Authorization" not in headers
+
+
 def test_backup_and_restore_round_trip(tmp_path: Path) -> None:
     source = tmp_path / "source.sqlite3"
     restored = tmp_path / "restored.sqlite3"

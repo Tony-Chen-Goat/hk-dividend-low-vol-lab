@@ -289,7 +289,7 @@ if cloud_config.configured:
         else:
             st.error(result.message)
 else:
-    st.warning("云端持久化尚未启用。请按 README 的说明配置 SUPABASE_URL、SUPABASE_SERVICE_ROLE_KEY 与 SUPABASE_STORAGE_BUCKET；在此之前请继续下载 SQLite 离线备份。")
+    st.warning("云端持久化尚未启用。请按 README 的说明配置 SUPABASE_URL、SUPABASE_SECRET_KEY 与 SUPABASE_STORAGE_BUCKET；在此之前请继续下载 SQLite 离线备份。")
 st.caption("为避免大型价格表在每次页面刷新时占用内存，导出文件只在明确点击后生成；完整留档优先选择SQLite备份。")
 export_kind = st.selectbox(
     "准备下载内容",
