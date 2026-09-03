@@ -6,12 +6,6 @@ import pandas as pd
 import streamlit as st
 
 from .config import APP_NAME, APP_SUBTITLE, DEFAULT_DB_PATH
-from .cloud_persistence import (
-    PersistenceResult,
-    backup_database_to_cloud,
-    bootstrap_cloud_database,
-    seed_cloud_database_once,
-)
 from .data_quality import database_quality_snapshot
 from .database import initialize_database, load_setting
 
@@ -51,9 +45,7 @@ def setup_page(title: str, icon: str = "📊") -> dict:
         icon="🏠",
     )
     st.sidebar.divider()
-    restore_result = bootstrap_cloud_database(DEFAULT_DB_PATH, st.secrets)
     initialize_database(DEFAULT_DB_PATH)
-    seed_result = seed_cloud_database_once(DEFAULT_DB_PATH, st.secrets)
     st.markdown('<div class="lab-kicker">HK EQUITY RESEARCH TERMINAL</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="lab-title">{title}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="lab-subtitle">{APP_SUBTITLE}</div>', unsafe_allow_html=True)
@@ -71,13 +63,6 @@ def setup_page(title: str, icon: str = "📊") -> dict:
         st.warning("市场数据正在更新。已保存实验仍可查看，但请等待更新完成后再创建新的风险快照或因子实验。")
     if snapshot["quality_note"]:
         st.warning(snapshot["quality_note"])
-    if restore_result.configured and not restore_result.ok:
-        st.warning(f"云端持久化提示：{restore_result.message} 当前页面仍可使用本地运行缓存。")
-    if seed_result.configured and not seed_result.ok:
-        st.warning(f"云端持久化提示：{seed_result.message} 请在数据中心检查配置后手动重试。")
-    if notice := st.session_state.pop("cloud_persistence_notice", None):
-        level, message = notice
-        getattr(st, level, st.info)(message)
     return snapshot
 
 
@@ -87,23 +72,3 @@ def empty_state(message: str = "尚无可计算的真实数据。请先前往“
 
 def yahoo_notice() -> None:
     st.caption("Yahoo Finance 数据通过非官方 yfinance 工具获取，可能受许可条款、限流、字段变化和服务稳定性影响；抓取失败会被明确记录。")
-
-
-def cloud_storage_notice() -> None:
-    st.caption("Streamlit Community Cloud 的本地 SQLite 仅作为运行缓存；配置 Supabase 后，系统会在启动时自动恢复，并在关键操作完成后保存一致性云端快照。SQLite 下载仍可作为离线灾备。")
-
-
-def persist_cloud_database(reason: str, *, protected: bool = False) -> PersistenceResult:
-    result = backup_database_to_cloud(
-        DEFAULT_DB_PATH,
-        st.secrets,
-        reason=reason,
-        protected=protected,
-    )
-    if result.configured:
-        if result.ok:
-            message = result.message if result.action != "unchanged" else "数据已与云端备份一致。"
-            st.session_state["cloud_persistence_notice"] = ("success", message)
-        else:
-            st.session_state["cloud_persistence_notice"] = ("warning", result.message)
-    return result

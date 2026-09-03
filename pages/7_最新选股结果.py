@@ -10,7 +10,8 @@ from app.experiment_store import get_experiment, list_experiments
 from app.portfolio import build_enhanced_portfolio
 from app.research_pipeline import load_feature_panel
 from app.stability import read_recent_stock_prices, resolve_stock_data_cutoff
-from app.ui import empty_state, setup_page
+from app.page_runtime import setup_page
+from app.ui import empty_state
 
 
 ENTRY_LABELS = {

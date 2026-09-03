@@ -10,7 +10,9 @@ from app.config import BENCHMARKS, DATA_DIR, DEFAULT_DB_PATH
 from app.cloud_persistence import read_latest_manifest, resolve_cloud_config, restore_database_from_cloud
 from app.database import connect, export_table_csv, load_setting, read_table, restore_database, save_setting, table_counts, upsert_rows
 from app.display import localized_frame
-from app.ui import cloud_storage_notice, persist_cloud_database, setup_page, yahoo_notice
+from app.cloud_ui import cloud_storage_notice, persist_cloud_database
+from app.page_runtime import setup_page
+from app.ui import yahoo_notice
 from app.stability import universe_fingerprint
 from app.universe import validate_universe_csv
 from app.yahoo_provider import fetch_benchmark_prices, fetch_yahoo_data
