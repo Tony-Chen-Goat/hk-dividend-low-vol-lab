@@ -39,6 +39,12 @@ CSS = """
 def setup_page(title: str, icon: str = "📊") -> dict:
     st.set_page_config(page_title=f"{title} | {APP_NAME}", page_icon=icon, layout="wide")
     st.markdown(CSS, unsafe_allow_html=True)
+    st.sidebar.page_link(
+        "https://spring-stock-app.vercel.app/",
+        label="返回 SIP 网站首页",
+        icon="🏠",
+    )
+    st.sidebar.divider()
     initialize_database(DEFAULT_DB_PATH)
     st.markdown('<div class="lab-kicker">HK EQUITY RESEARCH TERMINAL</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="lab-title">{title}</div>', unsafe_allow_html=True)
