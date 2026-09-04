@@ -33,9 +33,11 @@ def test_builtin_demo_universe_is_valid_and_complete():
 def test_data_center_avoids_known_unstable_lazy_widget_bundles():
     source = (PROJECT_ROOT / "pages" / "1_数据中心.py").read_text(encoding="utf-8")
 
-    for unstable_widget in [".file_uploader(", ".selectbox(", ".date_input(", ".dataframe("]:
+    for unstable_widget in [".file_uploader(", ".selectbox(", ".date_input(", ".dataframe(", ".progress("]:
         assert unstable_widget not in source
     assert "custom_universe_csv_text" in source
+    assert "completed_count" in source
+    assert "eta_seconds" in source
 
 
 def test_demo_pages_do_not_use_lazy_slider_component():

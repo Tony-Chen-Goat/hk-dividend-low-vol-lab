@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from html import escape
 from time import time
 
 import pandas as pd
@@ -9,6 +9,7 @@ import streamlit as st
 from .config import APP_NAME, APP_SUBTITLE, DEFAULT_DB_PATH
 from .data_quality import database_quality_snapshot
 from .database import initialize_database, load_setting
+from .update_progress import format_duration, update_progress_metrics
 
 
 CSS = """
@@ -33,8 +34,55 @@ CSS = """
   .stable-table tbody tr:hover { background:#F1F6F2; }
   .stable-table-empty { padding:1rem; color:var(--muted); background:#FFFDF8; border:1px solid #D9DED8; border-radius:.55rem; }
   .stable-table-note { margin:.4rem 0 0; color:var(--muted); font-size:.78rem; }
+  .update-progress-card { background:#FFFDF8; border:1px solid #D7E1DA; border-left:4px solid var(--forest); border-radius:.55rem; padding:.85rem 1rem; margin:.7rem 0 1rem; }
+  .update-progress-head { display:flex; justify-content:space-between; gap:1rem; align-items:baseline; font-weight:700; }
+  .update-progress-percent { color:var(--forest); font-size:1.25rem; }
+  .update-progress-track { height:.72rem; margin:.65rem 0; background:#E5ECE7; border-radius:99px; overflow:hidden; }
+  .update-progress-fill { height:100%; background:linear-gradient(90deg,#1D7256,#47A276); border-radius:99px; transition:width .35s ease; }
+  .update-progress-stats { display:flex; flex-wrap:wrap; gap:.35rem 1.15rem; color:#44534D; font-size:.87rem; }
+  .update-progress-detail { margin-top:.45rem; color:var(--muted); font-size:.8rem; }
 </style>
 """
+
+
+def market_update_progress_html(update_state: dict) -> str:
+    metrics = update_progress_metrics(update_state)
+    percent = metrics["percent"]
+    latest = escape(metrics["current_symbol"] or "尚未完成第一只股票")
+    phase = escape(metrics["phase"])
+    heartbeat = metrics["seconds_since_update"]
+    heartbeat_text = format_duration(heartbeat) if heartbeat is not None else "未知"
+    return f"""
+    <div class="update-progress-card" role="status" aria-live="polite">
+      <div class="update-progress-head">
+        <span>Yahoo 市场数据更新进度</span>
+        <span class="update-progress-percent">{percent:.1f}%</span>
+      </div>
+      <div class="update-progress-track" aria-label="更新进度 {percent:.1f}%">
+        <div class="update-progress-fill" style="width:{percent:.1f}%"></div>
+      </div>
+      <div class="update-progress-stats">
+        <span>已处理 <b>{metrics['completed']}</b> / {metrics['total']} 只</span>
+        <span>剩余 <b>{metrics['remaining']}</b> 只</span>
+        <span>已用 {format_duration(metrics['elapsed_seconds'])}</span>
+        <span>预计剩余 {format_duration(metrics['eta_seconds'])}</span>
+      </div>
+      <div class="update-progress-detail">{phase}　·　最近完成：{latest}　·　状态于 {heartbeat_text} 前更新</div>
+    </div>
+    """
+
+
+@st.fragment(run_every="2s")
+def market_update_progress_panel() -> None:
+    update_state = load_setting("market_data_update_state", {}, DEFAULT_DB_PATH) or {}
+    if update_state.get("status") == "running":
+        st.markdown(market_update_progress_html(update_state), unsafe_allow_html=True)
+    elif update_state.get("status") in {"completed", "completed_with_warnings"}:
+        failed_count = int(update_state.get("failed_count", 0) or 0)
+        suffix = f"，其中 {failed_count} 只失败" if failed_count else ""
+        st.success(f"Yahoo 市场数据更新已完成{suffix}。请刷新本页继续计算风险快照。")
+    elif update_state.get("status") == "failed":
+        st.error("Yahoo 市场数据更新已中断。请返回数据中心查看错误并重新运行。")
 
 
 def setup_page(title: str, icon: str = "📊") -> dict:
@@ -64,7 +112,8 @@ def setup_page(title: str, icon: str = "📊") -> dict:
             f"　·　市场数据修订版：R{int(update_state.get('revision', 0) or 0)}"
         )
     if update_state.get("status") == "running":
-        st.warning("市场数据正在更新。已保存实验仍可查看，但请等待更新完成后再创建新的风险快照或因子实验。")
+        market_update_progress_panel()
+        st.warning("更新期间已保存实验仍可查看；请等待进度达到100%后，再创建新的风险快照或因子实验。")
     if snapshot["quality_note"]:
         st.warning(snapshot["quality_note"])
     return snapshot

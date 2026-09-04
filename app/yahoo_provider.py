@@ -128,8 +128,6 @@ def fetch_yahoo_data(
             for _, symbol in batch:
                 failures.append(FetchFailure(symbol, f"批量价格请求失败: {exc}"))
         for index, (raw, symbol) in enumerate(batch, start=offset + 1):
-            if progress:
-                progress(index, total, symbol)
             try:
                 price = transform_price_frame(downloaded, symbol)
                 if price.empty:
@@ -169,6 +167,8 @@ def fetch_yahoo_data(
                 })
             except Exception as exc:
                 failures.append(FetchFailure(symbol, str(exc)))
+            if progress:
+                progress(index, total, symbol)
         batch_prices = pd.concat(prices[price_start:], ignore_index=True) if len(prices) > price_start else pd.DataFrame()
         batch_dividends = pd.concat(dividends[dividend_start:], ignore_index=True) if len(dividends) > dividend_start else pd.DataFrame()
         batch_actions = pd.concat(corporate_actions[action_start:], ignore_index=True) if len(corporate_actions) > action_start else pd.DataFrame()

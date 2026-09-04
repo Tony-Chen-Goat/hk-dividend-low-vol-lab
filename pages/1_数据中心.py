@@ -13,7 +13,7 @@ from app.database import connect, export_table_csv, load_setting, read_table, sa
 from app.display import localized_frame, stable_html_table
 from app.cloud_ui import cloud_storage_notice, persist_cloud_database
 from app.page_runtime import setup_page
-from app.ui import yahoo_notice
+from app.ui import market_update_progress_html, yahoo_notice
 from app.stability import universe_fingerprint
 from app.universe import validate_universe_csv
 from app.yahoo_provider import fetch_benchmark_prices, fetch_yahoo_data
@@ -156,7 +156,7 @@ if st.button("开始更新 Yahoo 数据", type="primary", disabled=bool(date_err
     elif start >= end:
         st.error("开始日期必须早于结束日期。")
     else:
-        bar, status = st.progress(0.0), st.empty()
+        progress_card = st.empty()
         started_at = pd.Timestamp.now(tz="Asia/Shanghai").isoformat()
         with connect(DEFAULT_DB_PATH) as conn:
             cursor = conn.execute(
@@ -170,17 +170,37 @@ if st.button("开始更新 Yahoo 数据", type="primary", disabled=bool(date_err
             )
             update_log_id = int(cursor.lastrowid)
         previous_state = load_setting("market_data_update_state", {}, DEFAULT_DB_PATH) or {}
-        save_setting(
-            "market_data_update_state",
-            {
-                "status": "running", "started_at": started_at,
-                "requested_count": len(symbols),
-                "revision": int(previous_state.get("revision", 0) or 0),
-            },
-            DEFAULT_DB_PATH,
-        )
+        running_state = {
+            "status": "running",
+            "phase": "正在准备第一批 Yahoo 请求",
+            "started_at": started_at,
+            "updated_at": started_at,
+            "requested_count": len(symbols),
+            "completed_count": 0,
+            "current_symbol": "",
+            "elapsed_seconds": 0.0,
+            "eta_seconds": None,
+            "revision": int(previous_state.get("revision", 0) or 0),
+        }
+        save_setting("market_data_update_state", running_state, DEFAULT_DB_PATH)
+        progress_card.markdown(market_update_progress_html(running_state), unsafe_allow_html=True)
+
         def progress(done, total, symbol):
-            bar.progress(done / max(total, 1)); status.caption(f"正在处理 {symbol}（{done}/{total}）")
+            updated_at = pd.Timestamp.now(tz="Asia/Shanghai")
+            elapsed_seconds = max(0.0, (updated_at - pd.Timestamp(started_at)).total_seconds())
+            eta_seconds = elapsed_seconds * max(0, total - done) / done if done else None
+            progress_state = {
+                **running_state,
+                "phase": "正在下载并校验价格、分红及公司信息",
+                "updated_at": updated_at.isoformat(),
+                "requested_count": total,
+                "completed_count": done,
+                "current_symbol": symbol,
+                "elapsed_seconds": elapsed_seconds,
+                "eta_seconds": eta_seconds,
+            }
+            save_setting("market_data_update_state", progress_state, DEFAULT_DB_PATH)
+            progress_card.markdown(market_update_progress_html(progress_state), unsafe_allow_html=True)
         try:
             def save_batch(batch):
                 with connect(DEFAULT_DB_PATH) as conn:
@@ -214,8 +234,16 @@ if st.button("开始更新 Yahoo 数据", type="primary", disabled=bool(date_err
             save_setting(
                 "market_data_update_state",
                 {
-                    "status": final_status, "started_at": started_at,
-                    "finished_at": finished_at, "requested_count": len(symbols),
+                    "status": final_status,
+                    "phase": "Yahoo 市场数据更新完成",
+                    "started_at": started_at,
+                    "updated_at": finished_at,
+                    "finished_at": finished_at,
+                    "requested_count": len(symbols),
+                    "completed_count": len(symbols),
+                    "current_symbol": symbols[-1] if symbols else "",
+                    "elapsed_seconds": max(0.0, (pd.Timestamp(finished_at) - pd.Timestamp(started_at)).total_seconds()),
+                    "eta_seconds": 0.0,
                     "success_count": result.success_count,
                     "failed_count": len(result.failures),
                     "revision": int(previous_state.get("revision", 0) or 0) + int(result.price_row_count > 0),
@@ -240,8 +268,16 @@ if st.button("开始更新 Yahoo 数据", type="primary", disabled=bool(date_err
             save_setting(
                 "market_data_update_state",
                 {
-                    "status": "failed", "started_at": started_at,
-                    "finished_at": finished_at, "requested_count": len(symbols),
+                    "status": "failed",
+                    "phase": "Yahoo 市场数据更新中断",
+                    "started_at": started_at,
+                    "updated_at": finished_at,
+                    "finished_at": finished_at,
+                    "requested_count": len(symbols),
+                    "completed_count": int(
+                        (load_setting("market_data_update_state", {}, DEFAULT_DB_PATH) or {}).get("completed_count", 0) or 0
+                    ),
+                    "elapsed_seconds": max(0.0, (pd.Timestamp(finished_at) - pd.Timestamp(started_at)).total_seconds()),
                     "revision": int(previous_state.get("revision", 0) or 0),
                     "reason": str(exc),
                 },
