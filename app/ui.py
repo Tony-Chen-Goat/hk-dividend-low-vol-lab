@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from time import time
 
 import pandas as pd
 import streamlit as st
@@ -44,6 +45,9 @@ def setup_page(title: str, icon: str = "📊") -> dict:
         label="返回 SIP 网站首页",
         icon="🏠",
     )
+    fresh_url = f"https://hk-dividend-low-vol-lab.streamlit.app/?reload={int(time() * 1000)}"
+    st.sidebar.markdown(f"[🔄 页面出现红色组件错误？重新加载最新版本]({fresh_url})")
+    st.sidebar.caption("部署或休眠唤醒后如有组件加载失败，请使用上方入口打开全新会话。")
     st.sidebar.divider()
     initialize_database(DEFAULT_DB_PATH)
     st.markdown('<div class="lab-kicker">HK EQUITY RESEARCH TERMINAL</div>', unsafe_allow_html=True)
