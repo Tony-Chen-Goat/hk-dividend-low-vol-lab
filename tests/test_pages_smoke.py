@@ -53,6 +53,15 @@ def test_risk_page_avoids_unstable_dataframe_frontend_bundle():
     assert "from app.display import localized_csv, localized_frame, stable_html_table" not in source
 
 
+def test_factor_lab_avoids_unstable_dataframe_and_plotly_bundles():
+    source = (PROJECT_ROOT / "pages" / "3_因子实验室.py").read_text(encoding="utf-8")
+
+    assert ".dataframe(" not in source
+    assert ".plotly_chart(" not in source
+    assert "stable_html_table" in source
+    assert "stable_correlation_svg" in source
+
+
 def test_latest_results_keeps_entry_labels_page_local_for_hot_deploys():
     source = (PROJECT_ROOT / "pages" / "7_最新选股结果.py").read_text(encoding="utf-8")
 

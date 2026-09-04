@@ -34,6 +34,8 @@ CSS = """
   .stable-table tbody tr:hover { background:#F1F6F2; }
   .stable-table-empty { padding:1rem; color:var(--muted); background:#FFFDF8; border:1px solid #D9DED8; border-radius:.55rem; }
   .stable-table-note { margin:.4rem 0 0; color:var(--muted); font-size:.78rem; }
+  .stable-chart-wrap { overflow:auto; background:#FFFDF8; border:1px solid #D9DED8; border-radius:.55rem; padding:.7rem; }
+  .stable-chart-wrap svg { display:block; max-width:none; }
   .update-progress-card { background:#FFFDF8; border:1px solid #D7E1DA; border-left:4px solid var(--forest); border-radius:.55rem; padding:.85rem 1rem; margin:.7rem 0 1rem; }
   .update-progress-head { display:flex; justify-content:space-between; gap:1rem; align-items:baseline; font-weight:700; }
   .update-progress-percent { color:var(--forest); font-size:1.25rem; }

@@ -3,7 +3,6 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from app.charts import factor_correlation_chart
 from app.config import (
     DEFAULT_DB_PATH,
     FACTOR_LABELS,
@@ -13,7 +12,7 @@ from app.config import (
     MODEL_YAHOO_10,
 )
 from app.database import load_setting
-from app.display import localized_frame
+from app.display import localized_csv, localized_frame, stable_correlation_svg, stable_html_table
 from app.experiment_store import experiment_display_name, get_experiment, next_experiment_version_name
 from app.research_pipeline import available_experiments, compute_and_store_features, load_feature_panel
 from app.scoring import validate_weights
@@ -115,7 +114,17 @@ else:
     c.metric("平均覆盖率", f"{latest['factor_coverage'].mean():.1%}")
     experiment = get_experiment(selected_experiment, DEFAULT_DB_PATH)
     st.caption(f"实验编号：{selected_experiment}　·　状态：{experiment.get('status')}　·　该版本会被Rank IC、月度回测和最新选股按编号读取。")
-    st.dataframe(localized_frame(latest.sort_values("model_score", ascending=False)), use_container_width=True, hide_index=True)
-    st.plotly_chart(factor_correlation_chart(latest, list(default_weights)), use_container_width=True)
+    latest_sorted = latest.sort_values("model_score", ascending=False)
+    st.markdown("#### 最新因子截面")
+    st.markdown(stable_html_table(localized_frame(latest_sorted)), unsafe_allow_html=True)
+    st.download_button(
+        "下载最新因子截面 CSV",
+        localized_csv(latest_sorted),
+        file_name=f"factor_snapshot_{selected_experiment}_{latest_month.date().isoformat()}.csv",
+        mime="text/csv",
+        on_click="ignore",
+    )
+    st.markdown("#### 因子相关性")
+    st.markdown(stable_correlation_svg(latest, list(default_weights)), unsafe_allow_html=True)
 st.markdown("#### 公式边界")
 st.write("股息率使用已除息现金分红与未复权月末价格；价格收益与波动率使用复权价格。日频波动稳定度代理因子来自日线滚动波动率，不是参考文章的分钟级高频因子。财务数据仅在 published_date 不晚于因子月末时使用。")
