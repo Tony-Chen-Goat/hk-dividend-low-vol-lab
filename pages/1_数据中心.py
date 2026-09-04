@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from io import StringIO
 
 import pandas as pd
 import streamlit as st
 
 from app.config import BENCHMARKS, DATA_DIR, DEFAULT_DB_PATH
 from app.cloud_persistence import read_latest_manifest, resolve_cloud_config, restore_database_from_cloud
-from app.database import connect, export_table_csv, load_setting, read_table, restore_database, save_setting, table_counts, upsert_rows
-from app.display import localized_frame
+from app.database import connect, export_table_csv, load_setting, read_table, save_setting, table_counts, upsert_rows
+from app.display import localized_frame, stable_html_table
 from app.cloud_ui import cloud_storage_notice, persist_cloud_database
 from app.page_runtime import setup_page
 from app.ui import yahoo_notice
@@ -25,7 +26,7 @@ if import_notice := st.session_state.pop("universe_import_notice", None):
     st.success(import_notice)
 if invalid_records := st.session_state.pop("universe_invalid_records", None):
     st.warning(f"另有 {len(invalid_records)} 行证券代码无效，未写入证券池。")
-    st.dataframe(localized_frame(pd.DataFrame(invalid_records)), use_container_width=True)
+    st.markdown(stable_html_table(localized_frame(pd.DataFrame(invalid_records))), unsafe_allow_html=True)
 counts = table_counts(DEFAULT_DB_PATH)
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("证券池", counts["security_master"])
@@ -80,25 +81,31 @@ def finish_universe_import(row_count: int, invalid: pd.DataFrame, universe_versi
 
 
 st.markdown("#### 证券池导入")
-st.caption("客户演示建议使用内置证券池：无需调用浏览器文件上传模块，且内容与2026-08-20官方已生效的恒指及国企指数并集一致。")
-if st.button("一键载入内置最新证券池（102只）", type="primary"):
+st.caption("客户演示建议使用内置证券池：无需调用浏览器文件上传模块，内容为2026-09-07生效的恒指及国企指数最新并集。")
+if st.button("一键载入内置最新证券池（104只）", type="primary"):
     try:
         builtin_frame = pd.read_csv(BUILTIN_UNIVERSE_PATH, dtype={"symbol": str})
         finish_universe_import(*persist_universe(builtin_frame, BUILTIN_UNIVERSE_PATH.name))
     except Exception as exc:
         st.error(f"内置证券池载入失败：{exc}")
 
-if st.button("显示或隐藏自定义证券池 CSV 上传工具"):
+if st.button("显示或隐藏自定义证券池 CSV 文本导入工具"):
     st.session_state["show_custom_universe_upload"] = not st.session_state.get("show_custom_universe_upload", False)
 if st.session_state.get("show_custom_universe_upload", False):
-    universe_file = st.file_uploader(
-        "上传证券池 CSV", type=["csv"], key="custom_universe_upload",
+    st.info("为避免云端部署或休眠唤醒后文件上传组件加载失败，请用文本编辑器打开 CSV，复制全部内容并粘贴到下方。")
+    custom_csv_text = st.text_area(
+        "粘贴证券池 CSV 完整内容",
+        height=220,
+        key="custom_universe_csv_text",
+        placeholder="symbol,name,sector,security_type,board,index_membership,effective_date,end_date,source",
         help="必须包含 symbol、name、sector、security_type、board、index_membership、effective_date、end_date、source",
     )
-    if universe_file and st.button("校验并写入自定义证券池"):
+    if st.button("校验并写入自定义证券池"):
         try:
-            custom_frame = pd.read_csv(universe_file, dtype={"symbol": str})
-            finish_universe_import(*persist_universe(custom_frame, universe_file.name))
+            if not custom_csv_text.strip():
+                raise ValueError("请先粘贴证券池 CSV 的完整内容。")
+            custom_frame = pd.read_csv(StringIO(custom_csv_text.lstrip("\ufeff")), dtype={"symbol": str})
+            finish_universe_import(*persist_universe(custom_frame, "pasted_universe.csv"))
         except Exception as exc:
             st.error(str(exc))
 
@@ -120,12 +127,29 @@ symbols_text = st.text_area(
     height=180,
     key="yahoo_symbols_text",
 )
-date_col1, date_col2, batch_col = st.columns(3)
-start = date_col1.date_input("原始数据开始日期", value=date(2011, 1, 1), help="若要从2016年开始进行完整10因子月度回测，建议至少从2011年抓取价格与分红历史。")
-end = date_col2.date_input("结束日期", value=date.today())
-batch_size = batch_col.number_input("每批股票数", 1, 25, 12)
+st.caption("原始数据开始日期（年 / 月 / 日）")
+start_cols = st.columns(3)
+start_year = start_cols[0].number_input("开始年", 2000, date.today().year, 2011, step=1)
+start_month = start_cols[1].number_input("开始月", 1, 12, 1, step=1)
+start_day = start_cols[2].number_input("开始日", 1, 31, 1, step=1)
+st.caption("结束日期（年 / 月 / 日）")
+end_cols = st.columns(3)
+end_year = end_cols[0].number_input("结束年", 2000, date.today().year + 1, date.today().year, step=1)
+end_month = end_cols[1].number_input("结束月", 1, 12, date.today().month, step=1)
+end_day = end_cols[2].number_input("结束日", 1, 31, date.today().day, step=1)
+batch_size = st.number_input("每批股票数", 1, 25, 12)
+date_error = None
+try:
+    start = date(int(start_year), int(start_month), int(start_day))
+    end = date(int(end_year), int(end_month), int(end_day))
+    if start > end:
+        date_error = "原始数据开始日期不能晚于结束日期。"
+except ValueError:
+    date_error = "日期无效，请检查年月日（例如二月没有30日）。"
+if date_error:
+    st.error(date_error)
 st.caption("回测开始日和原始数据开始日不是同一概念：2011–2015年用于形成历史因子窗口，组合表现从2016年开始评价。")
-if st.button("开始更新 Yahoo 数据", type="primary"):
+if st.button("开始更新 Yahoo 数据", type="primary", disabled=bool(date_error)):
     symbols = [item.strip() for item in symbols_text.replace("\n", ",").split(",") if item.strip()]
     if not symbols:
         st.error("请至少输入一个港股代码。")
@@ -202,7 +226,10 @@ if st.button("开始更新 Yahoo 数据", type="primary"):
             persist_cloud_database("yahoo_market_data_update")
             if result.failures:
                 st.warning("部分股票失败，任务其余部分已保存。")
-                st.dataframe(localized_frame(pd.DataFrame([failure.__dict__ for failure in result.failures])), use_container_width=True)
+                st.markdown(
+                    stable_html_table(localized_frame(pd.DataFrame([failure.__dict__ for failure in result.failures]))),
+                    unsafe_allow_html=True,
+                )
         except Exception as exc:
             finished_at = pd.Timestamp.now(tz="Asia/Shanghai").isoformat()
             with connect(DEFAULT_DB_PATH) as conn:
@@ -293,10 +320,21 @@ if cloud_config.configured:
 else:
     st.warning("云端持久化尚未启用。请按 README 的说明配置 SUPABASE_URL、SUPABASE_SECRET_KEY 与 SUPABASE_STORAGE_BUCKET；在此之前请继续下载 SQLite 离线备份。")
 st.caption("为避免大型价格表在每次页面刷新时占用内存，导出文件只在明确点击后生成；完整留档优先选择SQLite备份。")
-export_kind = st.selectbox(
-    "准备下载内容",
-    ["价格 CSV", "因子 CSV", "实验 CSV", "SQLite 备份"],
-)
+export_options = ["价格 CSV", "因子 CSV", "实验 CSV", "SQLite 备份"]
+if st.session_state.get("data_export_kind") not in export_options:
+    st.session_state["data_export_kind"] = export_options[0]
+st.write("准备下载内容")
+export_columns = st.columns(len(export_options))
+for export_column, option in zip(export_columns, export_options):
+    if export_column.button(
+        option,
+        key=f"choose_data_export_{option}",
+        type="primary" if st.session_state["data_export_kind"] == option else "secondary",
+        use_container_width=True,
+    ):
+        st.session_state["data_export_kind"] = option
+export_kind = st.session_state["data_export_kind"]
+st.caption(f"当前选择：{export_kind}")
 if st.button("生成所选下载文件"):
     export_map = {
         "价格 CSV": ("daily_prices.csv", "text/csv", lambda: export_table_csv("daily_prices")),
@@ -317,28 +355,8 @@ if st.button("生成所选下载文件"):
             f"下载 {export_kind}", payload, file_name=filename, mime=mime,
             on_click="ignore",
         )
-if st.button("显示或隐藏 SQLite 备份恢复工具"):
-    st.session_state["show_database_restore"] = not st.session_state.get("show_database_restore", False)
-if st.session_state.get("show_database_restore", False):
-    backup = st.file_uploader(
-        "上传 SQLite 备份恢复（将替换当前运行缓存）",
-        type=["sqlite", "sqlite3", "db"], key="database_restore_upload",
-    )
-    if backup and st.button("检查并恢复 SQLite"):
-        try:
-            restore_database(backup.getvalue(), DEFAULT_DB_PATH)
-            persist_cloud_database("manual_sqlite_restore", protected=True)
-            for key in list(st.session_state):
-                if key.startswith((
-                    "main_board_only_", "exclude_gem_", "allow_reit_",
-                    "min_price_hkd_", "min_listing_days_",
-                    "min_valid_trading_ratio_60d_", "max_suspension_days_",
-                    "min_avg_traded_value_20d_", "min_free_float_market_cap_",
-                    "weight_",
-                )) or key in {"yahoo_symbols_text", "active_experiment_id"}:
-                    del st.session_state[key]
-            st.session_state["database_restore_complete"] = True
-            st.rerun()
-        except Exception as exc:
-            st.error(str(exc))
+st.caption(
+    "为避免云端部署或休眠唤醒后浏览器上传模块加载失败，本页不再加载 SQLite 文件上传控件。"
+    "需要恢复时请使用上方“从云端恢复最新数据库”；下载的 SQLite 文件仍可作为离线灾备交由管理员恢复。"
+)
 yahoo_notice()

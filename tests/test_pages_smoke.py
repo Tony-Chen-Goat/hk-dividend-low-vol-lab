@@ -23,11 +23,19 @@ def test_builtin_demo_universe_is_valid_and_complete():
     frame = pd.read_csv(path, dtype={"symbol": str})
     validated = validate_universe_csv(frame)
 
-    assert len(validated) == 102
-    assert validated["symbol"].nunique() == 102
+    assert len(validated) == 104
+    assert validated["symbol"].nunique() == 104
     assert validated["symbol_error"].isna().all()
-    assert frame["index_membership"].str.contains("HSI").sum() == 93
+    assert frame["index_membership"].str.contains("HSI").sum() == 95
     assert frame["index_membership"].str.contains("HSCEI").sum() == 50
+
+
+def test_data_center_avoids_known_unstable_lazy_widget_bundles():
+    source = (PROJECT_ROOT / "pages" / "1_数据中心.py").read_text(encoding="utf-8")
+
+    for unstable_widget in [".file_uploader(", ".selectbox(", ".date_input(", ".dataframe("]:
+        assert unstable_widget not in source
+    assert "custom_universe_csv_text" in source
 
 
 def test_demo_pages_do_not_use_lazy_slider_component():
