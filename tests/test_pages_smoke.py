@@ -61,6 +61,8 @@ def test_factor_lab_avoids_unstable_dataframe_and_plotly_bundles():
     assert "stable_html_table" in source
     assert "_stable_correlation_svg" in source
     assert "from app.display import localized_csv, localized_frame, stable_html_table" in source
+    assert 'text-anchor="start"' in source
+    assert "cell_size, left_margin, top_margin, bottom_margin = 58, 190, 180, 44" in source
 
 
 def test_latest_results_keeps_entry_labels_page_local_for_hot_deploys():

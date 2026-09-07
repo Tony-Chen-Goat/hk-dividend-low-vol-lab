@@ -44,7 +44,7 @@ def _stable_correlation_svg(frame: pd.DataFrame, factors: list[str]) -> str:
 
     correlation = frame[columns].apply(pd.to_numeric, errors="coerce").corr(method="spearman")
     labels = [FACTOR_LABELS.get(column, column) for column in columns]
-    cell_size, left_margin, top_margin, bottom_margin = 58, 190, 128, 44
+    cell_size, left_margin, top_margin, bottom_margin = 58, 190, 180, 44
     width = left_margin + cell_size * len(columns) + 24
     height = top_margin + cell_size * len(columns) + bottom_margin
     elements = [
@@ -54,11 +54,14 @@ def _stable_correlation_svg(frame: pd.DataFrame, factors: list[str]) -> str:
         '<text x="12" y="48" fill="#65746D" font-size="12">-1 为反向，0 为弱相关，+1 为同向</text>',
     ]
     for index, label in enumerate(labels):
-        x = left_margin + index * cell_size + cell_size / 2
-        y = top_margin - 10
+        # Start each rotated label above its own cell.  With ``text-anchor=start``
+        # the glyphs extend up and to the right instead of descending behind the
+        # first heatmap row (the previous ``end`` anchor caused the overlap).
+        x = left_margin + index * cell_size + 12
+        y = top_margin - 14
         safe_label = escape(str(label), quote=True)
         elements.append(
-            f'<text x="{x:.1f}" y="{y}" fill="#44534D" font-size="11" text-anchor="end" '
+            f'<text x="{x:.1f}" y="{y}" fill="#44534D" font-size="11" text-anchor="start" '
             f'transform="rotate(-48 {x:.1f} {y})">{safe_label}</text>'
         )
         row_y = top_margin + index * cell_size + cell_size / 2 + 4
