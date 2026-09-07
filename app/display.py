@@ -193,69 +193,6 @@ def stable_html_table(frame: pd.DataFrame, max_rows: int = 250) -> str:
     )
 
 
-def _correlation_color(value: float) -> tuple[str, str]:
-    red = (168, 64, 50)
-    cream = (246, 241, 231)
-    green = (22, 78, 59)
-    if pd.isna(value):
-        return "#E7EBE8", "#65746D"
-    bounded = max(-1.0, min(1.0, float(value)))
-    start, end, ratio = (red, cream, bounded + 1.0) if bounded < 0 else (cream, green, bounded)
-    rgb = tuple(round(left + (right - left) * ratio) for left, right in zip(start, end))
-    luminance = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
-    return "#" + "".join(f"{channel:02X}" for channel in rgb), "#FFFFFF" if luminance < 145 else "#1C2A25"
-
-
-def stable_correlation_svg(frame: pd.DataFrame, factors: list[str]) -> str:
-    """Render a Spearman correlation heatmap without Streamlit's Plotly JS bundle."""
-    columns = [column for column in factors if column in frame.columns]
-    if not columns:
-        return '<div class="stable-table-empty">暂无可计算的因子相关性。</div>'
-
-    correlation = frame[columns].apply(pd.to_numeric, errors="coerce").corr(method="spearman")
-    labels = [column_label(column) for column in columns]
-    cell_size, left_margin, top_margin, bottom_margin = 58, 190, 128, 44
-    width = left_margin + cell_size * len(columns) + 24
-    height = top_margin + cell_size * len(columns) + bottom_margin
-    elements = [
-        f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" role="img" '
-        'aria-label="因子 Spearman 相关性热力图" xmlns="http://www.w3.org/2000/svg">',
-        '<text x="12" y="25" fill="#1C2A25" font-size="16" font-weight="700">因子 Spearman 相关性</text>',
-        '<text x="12" y="48" fill="#65746D" font-size="12">-1 为反向，0 为弱相关，+1 为同向</text>',
-    ]
-    for index, label in enumerate(labels):
-        x = left_margin + index * cell_size + cell_size / 2
-        y = top_margin - 10
-        safe_label = escape(str(label), quote=True)
-        elements.append(
-            f'<text x="{x:.1f}" y="{y}" fill="#44534D" font-size="11" text-anchor="end" '
-            f'transform="rotate(-48 {x:.1f} {y})">{safe_label}</text>'
-        )
-        row_y = top_margin + index * cell_size + cell_size / 2 + 4
-        elements.append(
-            f'<text x="{left_margin - 10}" y="{row_y:.1f}" fill="#44534D" font-size="11" '
-            f'text-anchor="end">{safe_label}</text>'
-        )
-
-    for row_index, row_column in enumerate(columns):
-        for column_index, column in enumerate(columns):
-            value = correlation.loc[row_column, column]
-            fill, text_color = _correlation_color(value)
-            x = left_margin + column_index * cell_size
-            y = top_margin + row_index * cell_size
-            label = "—" if pd.isna(value) else f"{float(value):.2f}"
-            elements.append(
-                f'<rect x="{x}" y="{y}" width="{cell_size - 2}" height="{cell_size - 2}" '
-                f'rx="4" fill="{fill}" />'
-            )
-            elements.append(
-                f'<text x="{x + cell_size / 2:.1f}" y="{y + cell_size / 2 + 4:.1f}" '
-                f'fill="{text_color}" font-size="11" font-weight="600" text-anchor="middle">{label}</text>'
-            )
-    elements.append("</svg>")
-    return '<div class="stable-chart-wrap">' + "".join(elements) + "</div>"
-
-
 def canonicalize_columns(frame: pd.DataFrame) -> pd.DataFrame:
     reverse = {label: column for column, label in COLUMN_LABELS.items()}
     cleaned = frame.copy()

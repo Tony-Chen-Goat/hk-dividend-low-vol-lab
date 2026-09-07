@@ -1,6 +1,6 @@
 import pandas as pd
 
-from app.display import canonicalize_columns, localized_frame, stable_correlation_svg, stable_html_table
+from app.display import canonicalize_columns, localized_frame, stable_html_table
 
 
 def test_localized_and_canonical_column_names_round_trip():
@@ -25,15 +25,3 @@ def test_stable_html_table_escapes_values_and_bounds_rows():
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in rendered
     assert "A&amp;B" in rendered
     assert "当前显示前 2 行，共 3 行" in rendered
-
-
-def test_stable_correlation_svg_renders_values_without_scripts():
-    frame = pd.DataFrame({"factor_a": [1, 2, 3], "<factor_b>": [3, 2, 1]})
-
-    rendered = stable_correlation_svg(frame, ["factor_a", "<factor_b>"])
-
-    assert rendered.startswith('<div class="stable-chart-wrap">')
-    assert "<svg" in rendered
-    assert "-1.00" in rendered
-    assert "&lt;factor_b&gt;" in rendered
-    assert "<script" not in rendered

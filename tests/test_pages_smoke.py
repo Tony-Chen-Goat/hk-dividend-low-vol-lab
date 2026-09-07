@@ -59,7 +59,8 @@ def test_factor_lab_avoids_unstable_dataframe_and_plotly_bundles():
     assert ".dataframe(" not in source
     assert ".plotly_chart(" not in source
     assert "stable_html_table" in source
-    assert "stable_correlation_svg" in source
+    assert "_stable_correlation_svg" in source
+    assert "from app.display import localized_csv, localized_frame, stable_html_table" in source
 
 
 def test_latest_results_keeps_entry_labels_page_local_for_hot_deploys():
