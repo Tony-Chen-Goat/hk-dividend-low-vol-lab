@@ -75,6 +75,10 @@ def test_latest_results_keeps_entry_labels_page_local_for_hot_deploys():
     assert "STOCK_NAME_ZH" in source
     assert "SECTOR_ZH" in source
     assert "_airport_selection_board" in source
+    assert "_airport_entry_board" in source
+    assert "ENTRY REFERENCE BOARD" in source
+    assert "entry-board-table" in source
+    assert "所有买点字段仅改变显示方式，计算口径保持不变" in source
     assert "@keyframes boardZh" in source
     assert "@keyframes boardEn" in source
     assert "@keyframes boardNameMarquee" in source

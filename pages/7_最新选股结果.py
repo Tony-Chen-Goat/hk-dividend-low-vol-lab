@@ -126,6 +126,9 @@ BOARD_CSS = """
   .board-number { color:#F0C078; font-weight:800; }
   .board-status { display:inline-block; padding:.22rem .48rem; color:#71E5B8; background:#123A32;
     border:1px solid #285F50; border-radius:4px; font-size:.7rem; }
+  .board-status-warm { color:#F0C078; background:#392D1E; border-color:#6B4D28; }
+  .entry-board-table { min-width:2020px; }
+  .board-guidance { display:block; width:300px; color:#B6C7C4; white-space:normal; line-height:1.35; }
   .board-bilingual { position:relative; min-width:180px; height:2.45rem; overflow:hidden; }
   .board-security { width:220px; }
   .board-sector { min-width:210px; }
@@ -269,6 +272,62 @@ def _airport_selection_board(
     )
 
 
+def _airport_entry_board(frame: pd.DataFrame, *, factor_month: str) -> str:
+    if frame.empty:
+        return '<div class="stable-table-empty">暂无可显示记录</div>'
+
+    headers = [
+        "序号 / NO.", "代码 / CODE", "证券名称 / SECURITY", "信号数据日 / SIGNAL DATE",
+        "最新收盘价 / LAST", "5日均线 / MA5", "20日均线 / MA20", "近20日涨跌幅 / 20D RETURN",
+        "趋势强弱 / TREND", "参考均线 / REFERENCE", "参考买点 / ENTRY", "观察下限 / RANGE LOW",
+        "观察上限 / RANGE HIGH", "现价偏离 / VS REFERENCE", "买点参考说明 / GUIDANCE",
+    ]
+    header_html = "".join(f"<th>{escape(label, quote=True)}</th>" for label in headers)
+    rows = []
+    for _, row in frame.iterrows():
+        symbol = _text(row.get("symbol"))
+        english_name = _text(row.get("name"), symbol)
+        chinese_name = STOCK_NAME_ZH.get(symbol, f"港股 {symbol}")
+        trend = _text(row.get("trend_strength"))
+        trend_class = "board-status" if "较强" in trend else "board-status board-status-warm"
+        rows.append(
+            "<tr>"
+            f'<td><span class="board-rank">{int(row.get("排名", 0)):02d}</span></td>'
+            f'<td><span class="board-code">{escape(symbol, quote=True)}</span></td>'
+            f"<td>{_bilingual_cell(chinese_name, english_name)}</td>"
+            f'<td>{escape(_text(row.get("signal_as_of")), quote=True)}</td>'
+            f'<td class="board-number">{_number(row.get("latest_price"), 3)}</td>'
+            f'<td class="board-number">{_number(row.get("ma5"), 3)}</td>'
+            f'<td class="board-number">{_number(row.get("ma20"), 3)}</td>'
+            f'<td class="board-number">{escape(_text(row.get("return_20d")), quote=True)}</td>'
+            f'<td><span class="{trend_class}">{escape(trend, quote=True)}</span></td>'
+            f'<td><span class="board-status">{escape(_text(row.get("reference_ma")), quote=True)}</span></td>'
+            f'<td class="board-number">{_number(row.get("reference_price"), 3)}</td>'
+            f'<td class="board-number">{_number(row.get("reference_low"), 3)}</td>'
+            f'<td class="board-number">{_number(row.get("reference_high"), 3)}</td>'
+            f'<td class="board-number">{escape(_text(row.get("price_vs_reference")), quote=True)}</td>'
+            f'<td><span class="board-guidance">{escape(_text(row.get("entry_guidance")), quote=True)}</span></td>'
+            "</tr>"
+        )
+
+    return (
+        BOARD_CSS
+        + '<section class="flight-board entry-board">'
+        + '<div class="flight-board-head"><div>'
+        + '<div class="flight-board-kicker">HK DIVIDEND LOW VOL · ENTRY REFERENCE BOARD</div>'
+        + '<div class="flight-board-title">红利低波 · 均线买点参考大屏</div></div>'
+        + '<div class="flight-board-clock"><span class="flight-board-live">● LIVE</span><br>'
+        + f'FACTOR MONTH　{escape(factor_month, quote=True)}<br>CN / EN AUTO ROTATION</div></div>'
+        + '<div class="flight-board-scroll"><table class="flight-board-table entry-board-table"><thead><tr>'
+        + header_html
+        + "</tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table></div>"
+        + '<div class="board-cycle-note">证券名称以中文 6 秒、英文 7 秒柔和渐变循环；较长英文名称先停留 1.5 秒，再用 5.5 秒匀速向左滑动。所有买点字段仅改变显示方式，计算口径保持不变。</div>'
+        + "</section>"
+    )
+
+
 setup_page("最新选股结果", "🔎")
 experiments = list_experiments(DEFAULT_DB_PATH)
 approved = experiments[experiments["approved"] == 1] if not experiments.empty and "approved" in experiments else pd.DataFrame()
@@ -365,8 +424,10 @@ else:
             lambda value: f"{value:.1%}" if pd.notna(value) else "—"
         )
     entry_display["signal_as_of"] = pd.to_datetime(entry_display["signal_as_of"], errors="coerce").dt.date
-    entry_display = localized_frame(entry_display).rename(columns=ENTRY_LABELS)
-    st.markdown(_stable_html_table(entry_display), unsafe_allow_html=True)
+    st.markdown(
+        _airport_entry_board(entry_display, factor_month=latest_month.date().isoformat()),
+        unsafe_allow_html=True,
+    )
 download_cols = st.columns(2)
 download_cols[0].download_button("下载标准字段CSV", portfolio.to_csv(index=False).encode("utf-8-sig"), f"latest_selection_{latest_month.date()}.csv")
 download_cols[1].download_button("下载中文字段CSV", localized_csv(portfolio.rename(columns=ENTRY_LABELS)), f"latest_selection_{latest_month.date()}_cn.csv")
