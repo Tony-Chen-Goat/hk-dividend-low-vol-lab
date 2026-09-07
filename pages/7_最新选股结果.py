@@ -132,17 +132,17 @@ BOARD_CSS = """
   .board-lang { position:absolute; left:0; top:50%; transform:translateY(-50%); width:100%;
     overflow:hidden; text-overflow:ellipsis; font-weight:750; }
   .board-lang-en { color:#B6C7C4; text-transform:uppercase; font-size:.76rem; letter-spacing:.04em; opacity:0; }
-  .board-lang-zh { color:#F5F8F7; font-size:.9rem; animation:boardZh 12s ease-in-out infinite; }
-  .board-lang-en { animation:boardEn 12s ease-in-out infinite; }
+  .board-lang-zh { color:#F5F8F7; font-size:.9rem; animation:boardZh 15s linear infinite; }
+  .board-lang-en { animation:boardEn 15s linear infinite; }
   .board-en-text { display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; }
   .board-name-scroll .board-en-text { max-width:none; overflow:visible; text-overflow:clip; white-space:nowrap;
-    animation:boardNameMarquee 12s linear infinite; }
+    animation:boardNameMarquee 15s linear infinite; }
   .board-meter { width:92px; height:4px; margin-top:.28rem; background:#294046; border-radius:9px; overflow:hidden; }
   .board-meter > span { display:block; height:100%; background:#D68C38; border-radius:9px; }
   .board-cycle-note { margin:.65rem .35rem 0; color:#819B98; font-size:.72rem; letter-spacing:.04em; }
-  @keyframes boardZh { 0%,60% {opacity:1} 66%,92% {opacity:0} 98%,100% {opacity:1} }
-  @keyframes boardEn { 0%,60% {opacity:0} 66%,92% {opacity:1} 98%,100% {opacity:0} }
-  @keyframes boardNameMarquee { 0%,68% {transform:translateX(0)} 91% {transform:translateX(-100%)} 100% {transform:translateX(-100%)} }
+  @keyframes boardZh { 0%,53.333% {opacity:1} 53.334%,100% {opacity:0} }
+  @keyframes boardEn { 0%,53.333% {opacity:0} 53.334%,100% {opacity:1} }
+  @keyframes boardNameMarquee { 0%,53.333% {transform:translateX(0)} 100% {transform:translateX(-100%)} }
   @media (prefers-reduced-motion:reduce) {
     .board-lang-zh {animation:none;opacity:1}
     .board-lang-en {animation:none;opacity:0}
@@ -253,7 +253,7 @@ def _airport_selection_board(
         + "</tr></thead><tbody>"
         + "".join(rows)
         + "</tbody></table></div>"
-        + '<div class="board-cycle-note">证券名称及行业以中文约 8 秒、英文约 4 秒循环；较长的英文证券名称会自动向左滚动完整显示，向右滚动可查看全部因子字段。</div>'
+        + '<div class="board-cycle-note">证券名称及行业以中文 8 秒、英文 7 秒循环；较长的英文证券名称会在英文显示期间匀速向左滑动 7 秒，向右滚动可查看全部因子字段。</div>'
         + "</section>"
     )
 

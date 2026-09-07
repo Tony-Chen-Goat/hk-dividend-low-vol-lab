@@ -79,7 +79,9 @@ def test_latest_results_keeps_entry_labels_page_local_for_hot_deploys():
     assert "@keyframes boardEn" in source
     assert "@keyframes boardNameMarquee" in source
     assert 'should_scroll = len(english) > 25' in source
-    assert "中文约 8 秒、英文约 4 秒循环" in source
+    assert "中文 8 秒、英文 7 秒循环" in source
+    assert "animation:boardNameMarquee 15s linear infinite" in source
+    assert "0%,53.333% {transform:translateX(0)} 100% {transform:translateX(-100%)}" in source
     assert ".dataframe(" not in source
 
 
