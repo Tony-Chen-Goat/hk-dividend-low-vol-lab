@@ -77,6 +77,9 @@ def test_latest_results_keeps_entry_labels_page_local_for_hot_deploys():
     assert "_airport_selection_board" in source
     assert "@keyframes boardZh" in source
     assert "@keyframes boardEn" in source
+    assert "@keyframes boardNameMarquee" in source
+    assert 'should_scroll = len(english) > 25' in source
+    assert "中文约 8 秒、英文约 4 秒循环" in source
     assert ".dataframe(" not in source
 
 

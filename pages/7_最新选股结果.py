@@ -127,18 +127,27 @@ BOARD_CSS = """
   .board-status { display:inline-block; padding:.22rem .48rem; color:#71E5B8; background:#123A32;
     border:1px solid #285F50; border-radius:4px; font-size:.7rem; }
   .board-bilingual { position:relative; min-width:180px; height:2.45rem; overflow:hidden; }
+  .board-security { width:220px; }
   .board-sector { min-width:210px; }
   .board-lang { position:absolute; left:0; top:50%; transform:translateY(-50%); width:100%;
     overflow:hidden; text-overflow:ellipsis; font-weight:750; }
   .board-lang-en { color:#B6C7C4; text-transform:uppercase; font-size:.76rem; letter-spacing:.04em; opacity:0; }
-  .board-lang-zh { color:#F5F8F7; font-size:.9rem; animation:boardZh 10s ease-in-out infinite; }
-  .board-lang-en { animation:boardEn 10s ease-in-out infinite; }
+  .board-lang-zh { color:#F5F8F7; font-size:.9rem; animation:boardZh 12s ease-in-out infinite; }
+  .board-lang-en { animation:boardEn 12s ease-in-out infinite; }
+  .board-en-text { display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; }
+  .board-name-scroll .board-en-text { max-width:none; overflow:visible; text-overflow:clip; white-space:nowrap;
+    animation:boardNameMarquee 12s linear infinite; }
   .board-meter { width:92px; height:4px; margin-top:.28rem; background:#294046; border-radius:9px; overflow:hidden; }
   .board-meter > span { display:block; height:100%; background:#D68C38; border-radius:9px; }
   .board-cycle-note { margin:.65rem .35rem 0; color:#819B98; font-size:.72rem; letter-spacing:.04em; }
-  @keyframes boardZh { 0%,42% {opacity:1} 50%,90% {opacity:0} 98%,100% {opacity:1} }
-  @keyframes boardEn { 0%,42% {opacity:0} 50%,90% {opacity:1} 98%,100% {opacity:0} }
-  @media (prefers-reduced-motion:reduce) { .board-lang-zh {animation:none;opacity:1} .board-lang-en {animation:none;opacity:0} }
+  @keyframes boardZh { 0%,60% {opacity:1} 66%,92% {opacity:0} 98%,100% {opacity:1} }
+  @keyframes boardEn { 0%,60% {opacity:0} 66%,92% {opacity:1} 98%,100% {opacity:0} }
+  @keyframes boardNameMarquee { 0%,68% {transform:translateX(0)} 91% {transform:translateX(-100%)} 100% {transform:translateX(-100%)} }
+  @media (prefers-reduced-motion:reduce) {
+    .board-lang-zh {animation:none;opacity:1}
+    .board-lang-en {animation:none;opacity:0}
+    .board-name-scroll .board-en-text {animation:none}
+  }
 </style>
 """
 
@@ -163,11 +172,20 @@ def _text(value: object, fallback: str = "—") -> str:
 
 
 def _bilingual_cell(chinese: str, english: str, *, sector: bool = False) -> str:
-    css_class = "board-bilingual board-sector" if sector else "board-bilingual"
+    if sector:
+        css_class = "board-bilingual board-sector"
+    else:
+        # The board's security-name column is 220px wide.  Only names that are
+        # likely to exceed it receive the marquee; short names stay still.
+        should_scroll = len(english) > 25
+        css_class = "board-bilingual board-security"
+        if should_scroll:
+            css_class += " board-name-scroll"
     return (
         f'<div class="{css_class}">'
         f'<span class="board-lang board-lang-zh">{escape(chinese, quote=True)}</span>'
-        f'<span class="board-lang board-lang-en">{escape(english, quote=True)}</span>'
+        f'<span class="board-lang board-lang-en" title="{escape(english, quote=True)}">'
+        f'<span class="board-en-text">{escape(english, quote=True)}</span></span>'
         "</div>"
     )
 
@@ -235,7 +253,7 @@ def _airport_selection_board(
         + "</tr></thead><tbody>"
         + "".join(rows)
         + "</tbody></table></div>"
-        + '<div class="board-cycle-note">证券名称及行业每 10 秒在中文与英文之间自动循环；向右滚动可查看全部因子字段。</div>'
+        + '<div class="board-cycle-note">证券名称及行业以中文约 8 秒、英文约 4 秒循环；较长的英文证券名称会自动向左滚动完整显示，向右滚动可查看全部因子字段。</div>'
         + "</section>"
     )
 
