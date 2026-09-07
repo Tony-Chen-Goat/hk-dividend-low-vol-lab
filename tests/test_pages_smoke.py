@@ -81,7 +81,8 @@ def test_latest_results_keeps_entry_labels_page_local_for_hot_deploys():
     assert 'should_scroll = len(english) > 25' in source
     assert "中文 6 秒、英文 7 秒柔和渐变循环" in source
     assert "animation:boardNameMarquee 13s linear infinite" in source
-    assert "0%,61.538% {transform:translateX(0)}" in source
+    assert "0%,57.692% {transform:translateX(0)}" in source
+    assert "先停留 1.5 秒，再用 5.5 秒匀速向左滑动" in source
     assert "46.154%,95.385% {opacity:1}" in source
     assert ".dataframe(" not in source
 

@@ -151,7 +151,7 @@ BOARD_CSS = """
     100% {opacity:0}
   }
   @keyframes boardNameMarquee {
-    0%,61.538% {transform:translateX(0)}
+    0%,57.692% {transform:translateX(0)}
     100% {transform:translateX(-100%)}
   }
   @media (prefers-reduced-motion:reduce) {
@@ -264,7 +264,7 @@ def _airport_selection_board(
         + "</tr></thead><tbody>"
         + "".join(rows)
         + "</tbody></table></div>"
-        + '<div class="board-cycle-note">证券名称及行业以中文 6 秒、英文 7 秒柔和渐变循环；较长英文名称先停留 2 秒，再用 5 秒匀速向左滑动，向右滚动可查看全部因子字段。</div>'
+        + '<div class="board-cycle-note">证券名称及行业以中文 6 秒、英文 7 秒柔和渐变循环；较长英文名称先停留 1.5 秒，再用 5.5 秒匀速向左滑动，向右滚动可查看全部因子字段。</div>'
         + "</section>"
     )
 
