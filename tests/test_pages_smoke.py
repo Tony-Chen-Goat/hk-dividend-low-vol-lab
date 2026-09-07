@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 
 import pandas as pd
@@ -71,3 +72,26 @@ def test_latest_results_keeps_entry_labels_page_local_for_hot_deploys():
     assert "ENTRY_LABELS" in source
     assert '"reference_price": "参考买点（港元）"' in source
     assert '"entry_guidance": "买点参考说明"' in source
+    assert "STOCK_NAME_ZH" in source
+    assert "SECTOR_ZH" in source
+    assert "_airport_selection_board" in source
+    assert "@keyframes boardZh" in source
+    assert "@keyframes boardEn" in source
+    assert ".dataframe(" not in source
+
+
+def test_latest_results_bilingual_board_covers_builtin_universe():
+    source = (PROJECT_ROOT / "pages" / "7_最新选股结果.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    assignments = {
+        node.targets[0].id: ast.literal_eval(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id in {"STOCK_NAME_ZH", "SECTOR_ZH"}
+    }
+    universe = pd.read_csv(PROJECT_ROOT / "data" / "current_hsi_hscei_universe.csv")
+
+    assert set(universe["symbol"]) <= set(assignments["STOCK_NAME_ZH"])
+    assert set(universe["sector"]) <= set(assignments["SECTOR_ZH"])
