@@ -12,7 +12,7 @@ from app.rank_ic import compare_factor_ics, ic_summary, monthly_rank_ic
 from app.research_pipeline import available_experiments, load_feature_panel
 from app.cloud_ui import persist_cloud_database
 from app.page_runtime import setup_page
-from app.ui import empty_state
+from app.ui import empty_state, render_html
 
 
 setup_page("Rank IC 测试", "📐")
@@ -55,7 +55,7 @@ monthly = monthly_rank_ic(panel, "model_score", "forward_return", int(minimum))
 summary = ic_summary(monthly)
 summary["rank_ic_minimum"] = int(minimum)
 st.caption(f"实验编号：{experiment_id}。本页读取的是该实验已经冻结的因子权重和风险过滤后月度股票池，测试结果会回写到同一实验档案。")
-st.markdown('<span class="oos-tag">必须结合样本外窗口解读</span>', unsafe_allow_html=True)
+render_html('<span class="oos-tag">必须结合样本外窗口解读</span>')
 cols = st.columns(5)
 cols[0].metric("平均 Rank IC", f"{summary['mean_rank_ic']:.3f}" if pd.notna(summary["mean_rank_ic"]) else "—")
 cols[1].metric("Rank ICIR", f"{summary['rank_icir']:.2f}" if pd.notna(summary["rank_icir"]) else "—")

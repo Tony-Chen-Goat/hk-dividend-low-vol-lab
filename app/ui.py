@@ -47,6 +47,48 @@ CSS = """
 """
 
 
+COMPONENT_RECOVERY_SCRIPT = r"""
+<script>
+(() => {
+  if (window.__hkLowVolRecoveryInstalled) return;
+  window.__hkLowVolRecoveryInstalled = true;
+  const recoveryKey = "hk-low-vol-component-recovery";
+  const moduleError = /(Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module)/i;
+  const recover = (reason) => {
+    const message = String(reason?.message || reason || "");
+    if (!moduleError.test(message)) return;
+    const now = Date.now();
+    const previous = Number(sessionStorage.getItem(recoveryKey) || 0);
+    if (now - previous < 45000) return;
+    sessionStorage.setItem(recoveryKey, String(now));
+    const url = new URL(window.location.href);
+    url.searchParams.set("reload", String(now));
+    window.location.replace(url.toString());
+  };
+  window.addEventListener("unhandledrejection", (event) => recover(event.reason));
+  window.addEventListener("error", (event) => recover(event.error || event.message), true);
+})();
+</script>
+"""
+
+
+def render_html(body: str, *, target=None) -> None:
+    """Render trusted app-owned HTML without routing it through Markdown."""
+    destination = st if target is None else target
+    html = getattr(destination, "html", None)
+    if callable(html):
+        html(body)
+        return
+    destination.markdown(body, unsafe_allow_html=True)
+
+
+def install_component_recovery() -> None:
+    """Reload once with a cache-busting URL when stale JS chunks are detected."""
+    html = getattr(st, "html", None)
+    if callable(html):
+        html(COMPONENT_RECOVERY_SCRIPT, unsafe_allow_javascript=True)
+
+
 def market_update_progress_html(update_state: dict) -> str:
     metrics = update_progress_metrics(update_state)
     percent = metrics["percent"]
@@ -78,7 +120,7 @@ def market_update_progress_html(update_state: dict) -> str:
 def market_update_progress_panel() -> None:
     update_state = load_setting("market_data_update_state", {}, DEFAULT_DB_PATH) or {}
     if update_state.get("status") == "running":
-        st.markdown(market_update_progress_html(update_state), unsafe_allow_html=True)
+        render_html(market_update_progress_html(update_state))
     elif update_state.get("status") in {"completed", "completed_with_warnings"}:
         failed_count = int(update_state.get("failed_count", 0) or 0)
         suffix = f"，其中 {failed_count} 只失败" if failed_count else ""
@@ -89,7 +131,8 @@ def market_update_progress_panel() -> None:
 
 def setup_page(title: str, icon: str = "📊") -> dict:
     st.set_page_config(page_title=f"{title} | {APP_NAME}", page_icon=icon, layout="wide")
-    st.markdown(CSS, unsafe_allow_html=True)
+    install_component_recovery()
+    render_html(CSS)
     st.sidebar.page_link(
         "https://spring-stock-app.vercel.app/",
         label="返回 SIP 网站首页",
@@ -100,14 +143,14 @@ def setup_page(title: str, icon: str = "📊") -> dict:
     st.sidebar.caption("部署或休眠唤醒后如有组件加载失败，请使用上方入口打开全新会话。")
     st.sidebar.divider()
     initialize_database(DEFAULT_DB_PATH)
-    st.markdown('<div class="lab-kicker">HK EQUITY RESEARCH TERMINAL</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="lab-title">{title}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="lab-subtitle">{APP_SUBTITLE}</div>', unsafe_allow_html=True)
+    render_html('<div class="lab-kicker">HK EQUITY RESEARCH TERMINAL</div>')
+    render_html(f'<div class="lab-title">{escape(title)}</div>')
+    render_html(f'<div class="lab-subtitle">{escape(APP_SUBTITLE)}</div>')
     snapshot = database_quality_snapshot(DEFAULT_DB_PATH)
     active_universe = load_setting("active_universe", {}, DEFAULT_DB_PATH) or {}
     update_state = load_setting("market_data_update_state", {}, DEFAULT_DB_PATH) or {}
     cutoff = snapshot["data_cutoff"].date().isoformat() if pd.notna(snapshot["data_cutoff"]) else "尚无数据"
-    st.markdown(f'<div class="quality-strip">数据截止：<b>{cutoff}</b>　·　价格覆盖 {snapshot["price_coverage"]:.0%}　·　分红覆盖 {snapshot["dividend_coverage"]:.0%}　·　财务覆盖 {snapshot["fundamental_coverage"]:.0%}</div>', unsafe_allow_html=True)
+    render_html(f'<div class="quality-strip">数据截止：<b>{escape(cutoff)}</b>　·　价格覆盖 {snapshot["price_coverage"]:.0%}　·　分红覆盖 {snapshot["dividend_coverage"]:.0%}　·　财务覆盖 {snapshot["fundamental_coverage"]:.0%}</div>')
     if active_universe:
         st.caption(
             f"当前活动证券池：{active_universe.get('version', '未知版本')}（{int(active_universe.get('row_count', 0) or 0)}只）"

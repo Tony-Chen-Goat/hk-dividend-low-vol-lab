@@ -20,7 +20,7 @@ from app.research_pipeline import available_experiments, compute_and_store_featu
 from app.scoring import validate_weights
 from app.cloud_ui import persist_cloud_database
 from app.page_runtime import setup_page
-from app.ui import empty_state
+from app.ui import empty_state, render_html
 
 
 def _correlation_color(value: float) -> tuple[str, str]:
@@ -185,7 +185,7 @@ else:
     st.caption(f"实验编号：{selected_experiment}　·　状态：{experiment.get('status')}　·　该版本会被Rank IC、月度回测和最新选股按编号读取。")
     latest_sorted = latest.sort_values("model_score", ascending=False)
     st.markdown("#### 最新因子截面")
-    st.markdown(stable_html_table(localized_frame(latest_sorted)), unsafe_allow_html=True)
+    render_html(stable_html_table(localized_frame(latest_sorted)))
     st.download_button(
         "下载最新因子截面 CSV",
         localized_csv(latest_sorted),
@@ -194,6 +194,6 @@ else:
         on_click="ignore",
     )
     st.markdown("#### 因子相关性")
-    st.markdown(_stable_correlation_svg(latest, list(default_weights)), unsafe_allow_html=True)
+    render_html(_stable_correlation_svg(latest, list(default_weights)))
 st.markdown("#### 公式边界")
 st.write("股息率使用已除息现金分红与未复权月末价格；价格收益与波动率使用复权价格。日频波动稳定度代理因子来自日线滚动波动率，不是参考文章的分钟级高频因子。财务数据仅在 published_date 不晚于因子月末时使用。")

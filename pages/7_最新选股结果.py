@@ -13,7 +13,7 @@ from app.portfolio import build_enhanced_portfolio
 from app.research_pipeline import load_feature_panel
 from app.stability import read_recent_stock_prices, resolve_stock_data_cutoff
 from app.page_runtime import setup_page
-from app.ui import empty_state
+from app.ui import empty_state, render_html
 
 
 ENTRY_LABELS = {
@@ -388,21 +388,20 @@ if not entry_references.empty:
     reference_lookup = entry_references.set_index("symbol")
     for column in reference_columns:
         portfolio[column] = portfolio["symbol"].astype(str).map(reference_lookup[column])
-st.markdown(f'<span class="oos-tag">因子月末 {latest_month.date().isoformat()}</span>', unsafe_allow_html=True)
+render_html(f'<span class="oos-tag">因子月末 {latest_month.date().isoformat()}</span>')
 cols = st.columns(4)
 cols[0].metric("候选股票", len(latest))
 cols[1].metric("最终入选", int((portfolio["target_weight"] > 0).sum()))
 cols[2].metric("股票权重", f"{portfolio['target_weight'].sum():.1%}")
 cols[3].metric("保留现金", f"{portfolio['cash_weight'].sum():.1%}")
 board_factors = [factor for factor in MODEL_FACTOR_WEIGHTS[model_name] if factor in portfolio]
-st.markdown(
+render_html(
     _airport_selection_board(
         portfolio,
         board_factors,
         max_stock_weight=max_stock,
         factor_month=latest_month.date().isoformat(),
-    ),
-    unsafe_allow_html=True,
+    )
 )
 st.markdown("#### 前10只入选股票的均线买点参考")
 st.info("固定研究规则：5日均线高于20日均线且近20日收益为正时，按短线趋势较强处理并参考5日线；其他情况参考20日线。观察区间为参考均线上下1%。这是一项技术面辅助信息，不是收益预测或自动买入指令。")
@@ -424,10 +423,7 @@ else:
             lambda value: f"{value:.1%}" if pd.notna(value) else "—"
         )
     entry_display["signal_as_of"] = pd.to_datetime(entry_display["signal_as_of"], errors="coerce").dt.date
-    st.markdown(
-        _airport_entry_board(entry_display, factor_month=latest_month.date().isoformat()),
-        unsafe_allow_html=True,
-    )
+    render_html(_airport_entry_board(entry_display, factor_month=latest_month.date().isoformat()))
 download_cols = st.columns(2)
 download_cols[0].download_button("下载标准字段CSV", portfolio.to_csv(index=False).encode("utf-8-sig"), f"latest_selection_{latest_month.date()}.csv")
 download_cols[1].download_button("下载中文字段CSV", localized_csv(portfolio.rename(columns=ENTRY_LABELS)), f"latest_selection_{latest_month.date()}_cn.csv")

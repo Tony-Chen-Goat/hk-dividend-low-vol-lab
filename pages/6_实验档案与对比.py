@@ -17,7 +17,7 @@ from app.experiment_comparison import (
 from app.experiment_store import approve_experiment, experiment_display_name, export_experiment_bundle, get_experiment, list_experiments
 from app.cloud_ui import persist_cloud_database
 from app.page_runtime import setup_page
-from app.ui import empty_state
+from app.ui import empty_state, render_html
 
 
 setup_page("实验档案与对比", "🗂️")
@@ -41,7 +41,7 @@ else:
     key, ascending = sort_map[sort_label]
     if key in experiments:
         experiments = experiments.sort_values(key, ascending=ascending)
-    st.markdown('<span class="oos-tag">历史研究表现，不代表预估收益</span>', unsafe_allow_html=True)
+    render_html('<span class="oos-tag">历史研究表现，不代表预估收益</span>')
     st.dataframe(localized_frame(experiments), use_container_width=True, hide_index=True)
     export_cols = st.columns(2)
     export_cols[0].download_button("导出标准字段CSV", experiments.to_csv(index=False).encode("utf-8-sig"), "experiments.csv")

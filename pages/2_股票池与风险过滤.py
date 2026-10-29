@@ -9,7 +9,7 @@ from app.display import localized_csv, localized_frame
 from app.stability import read_recent_stock_prices, resolve_stock_data_cutoff, risk_snapshot_fingerprint
 from app.cloud_ui import persist_cloud_database
 from app.page_runtime import setup_page
-from app.ui import empty_state
+from app.ui import empty_state, render_html
 from app.universe import apply_hk_risk_filters, build_risk_snapshot, default_filter_settings
 
 
@@ -121,7 +121,7 @@ result = apply_hk_risk_filters(snapshot, settings)
 snapshot_version = risk_snapshot_fingerprint(
     snapshot, settings, as_of=data_cutoff, universe_version=universe_version,
 )
-st.markdown(f'<span class="oos-tag">风险快照 {snapshot_version}</span>', unsafe_allow_html=True)
+render_html(f'<span class="oos-tag">风险快照 {snapshot_version}</span>')
 if not stored_settings:
     st.info("当前使用系统默认规则。若要让后续因子实验读取同一套规则，请点击上方“应用并保存”。")
 elif stored_settings.get("_universe_version") not in {None, universe_version}:
@@ -131,7 +131,7 @@ a.metric("筛选前", len(snapshot))
 b.metric("筛选后", len(result.included))
 c.metric("被排除", len(result.excluded))
 st.markdown("#### 入选股票")
-st.markdown(_stable_html_table(localized_frame(result.included)), unsafe_allow_html=True)
+render_html(_stable_html_table(localized_frame(result.included)))
 download_cols = st.columns(2)
 download_cols[0].download_button("下载标准字段CSV", result.included.to_csv(index=False).encode("utf-8-sig"), "included_universe.csv")
 download_cols[1].download_button("下载中文字段CSV", localized_csv(result.included), "included_universe_cn.csv")
@@ -141,7 +141,7 @@ if result.excluded.empty:
     st.success("当前没有股票被排除。")
 else:
     excluded_display = result.excluded[[column for column in ["symbol", "name", "sector", "exclusion_reasons"] if column in result.excluded]]
-    st.markdown(_stable_html_table(localized_frame(excluded_display)), unsafe_allow_html=True)
+    render_html(_stable_html_table(localized_frame(excluded_display)))
 st.markdown("#### 什么情况下股票仍会被排除")
 st.write("即使允许REIT，股票仍可能因以下风险被排除：非主板或GEM、不支持的结构化证券类型、上市历史不足、股价过低、近60日交易活跃度不足、连续停牌超限、最近一年停止派息或大幅削减股息、20日平均成交额不足、完整13因子模式下自由流通市值缺失，以及退市、清盘、私有化或长期停牌事件已经生效。")
 st.caption("REIT分派与普通公司股息的经济性质不同，可能受租金收入、利率、资产估值、负债与配售影响；放行仅代表进入量化候选池，最终仍需人工复核公告。港股不使用A股ST制度。")

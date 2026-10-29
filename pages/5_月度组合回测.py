@@ -23,7 +23,7 @@ from app.monthly_chart import (
 from app.research_pipeline import available_experiments, backtest_from_panel, load_feature_panel
 from app.cloud_ui import persist_cloud_database
 from app.page_runtime import setup_page
-from app.ui import empty_state
+from app.ui import empty_state, render_html
 
 
 setup_page("月度组合回测", "📈")
@@ -240,7 +240,7 @@ actual_end = pd.to_datetime(monthly["month_end"]).max()
 archived_top_n = int(saved_backtest.get("selected_count", experiment.get("selected_count") or top_n))
 save_note = "正式实验只读展示" if locked else "下方读取已保存结果；修改控件不会覆盖，须点击运行并保存"
 st.caption(f"实验编号：{experiment_id}。实际回测信号区间：{actual_start.date().isoformat()} 至 {actual_end.date().isoformat()}；已保存设置为每月动态选择因子综合得分前 {archived_top_n} 名。{save_note}。")
-st.markdown('<span class="oos-tag">结果需按样本内 / 样本外窗口分别评估</span>', unsafe_allow_html=True)
+render_html('<span class="oos-tag">结果需按样本内 / 样本外窗口分别评估</span>')
 cols = st.columns(6)
 for column, (label, key, fmt) in zip(cols, [
     ("年化收益", "annualized_return", ".1%"), ("年化波动", "annualized_volatility", ".1%"),

@@ -8,7 +8,7 @@ from app.database import latest_feature_summary, table_counts
 from app.experiment_store import list_experiments
 from app.cloud_ui import cloud_storage_notice
 from app.page_runtime import setup_page
-from app.ui import empty_state, yahoo_notice
+from app.ui import empty_state, render_html, yahoo_notice
 
 
 quality = setup_page("港股红利低波实验室", "🧭")
@@ -37,7 +37,7 @@ with left:
             empty_state("当前实验尚未完成月度组合回测。")
         else:
             row = best.iloc[0]
-            st.markdown('<span class="oos-tag">历史研究表现</span>', unsafe_allow_html=True)
+            render_html('<span class="oos-tag">历史研究表现</span>')
             st.subheader(row["name"])
             a, b, c = st.columns(3)
             a.metric("综合得分", f"{row['score']:.3f}" if pd.notna(row["score"]) else "—")
@@ -53,6 +53,6 @@ with right:
         st.warning("完整13因子因数据缺失而禁用：" + "、".join(quality["disabled_factors"]) + "；Yahoo 基础10因子仍可运行。")
 
 st.markdown("#### 研究边界与风险")
-st.markdown('<div class="warning-box">本工具用于研究，不构成投资建议。yfinance 是非官方数据接口；指数历史成分、财务公告日期、自由流通股本与退市事件覆盖不足时，结果可能含幸存者偏差或无法计算。任何增强模型结果都不是参考文章的原始回测结果。</div>', unsafe_allow_html=True)
+render_html('<div class="warning-box">本工具用于研究，不构成投资建议。yfinance 是非官方数据接口；指数历史成分、财务公告日期、自由流通股本与退市事件覆盖不足时，结果可能含幸存者偏差或无法计算。任何增强模型结果都不是参考文章的原始回测结果。</div>')
 yahoo_notice()
 cloud_storage_notice()

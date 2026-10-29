@@ -13,7 +13,7 @@ from app.database import connect, export_table_csv, load_setting, read_table, sa
 from app.display import localized_frame, stable_html_table
 from app.cloud_ui import cloud_storage_notice, persist_cloud_database
 from app.page_runtime import setup_page
-from app.ui import market_update_progress_html, yahoo_notice
+from app.ui import market_update_progress_html, render_html, yahoo_notice
 from app.stability import universe_fingerprint
 from app.universe import validate_universe_csv
 from app.yahoo_provider import fetch_benchmark_prices, fetch_yahoo_data
@@ -26,7 +26,7 @@ if import_notice := st.session_state.pop("universe_import_notice", None):
     st.success(import_notice)
 if invalid_records := st.session_state.pop("universe_invalid_records", None):
     st.warning(f"另有 {len(invalid_records)} 行证券代码无效，未写入证券池。")
-    st.markdown(stable_html_table(localized_frame(pd.DataFrame(invalid_records))), unsafe_allow_html=True)
+    render_html(stable_html_table(localized_frame(pd.DataFrame(invalid_records))))
 counts = table_counts(DEFAULT_DB_PATH)
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("证券池", counts["security_master"])
@@ -183,7 +183,7 @@ if st.button("开始更新 Yahoo 数据", type="primary", disabled=bool(date_err
             "revision": int(previous_state.get("revision", 0) or 0),
         }
         save_setting("market_data_update_state", running_state, DEFAULT_DB_PATH)
-        progress_card.markdown(market_update_progress_html(running_state), unsafe_allow_html=True)
+        render_html(market_update_progress_html(running_state), target=progress_card)
 
         def progress(done, total, symbol):
             updated_at = pd.Timestamp.now(tz="Asia/Shanghai")
@@ -200,7 +200,7 @@ if st.button("开始更新 Yahoo 数据", type="primary", disabled=bool(date_err
                 "eta_seconds": eta_seconds,
             }
             save_setting("market_data_update_state", progress_state, DEFAULT_DB_PATH)
-            progress_card.markdown(market_update_progress_html(progress_state), unsafe_allow_html=True)
+            render_html(market_update_progress_html(progress_state), target=progress_card)
         try:
             def save_batch(batch):
                 with connect(DEFAULT_DB_PATH) as conn:
@@ -254,9 +254,8 @@ if st.button("开始更新 Yahoo 数据", type="primary", disabled=bool(date_err
             persist_cloud_database("yahoo_market_data_update")
             if result.failures:
                 st.warning("部分股票失败，任务其余部分已保存。")
-                st.markdown(
-                    stable_html_table(localized_frame(pd.DataFrame([failure.__dict__ for failure in result.failures]))),
-                    unsafe_allow_html=True,
+                render_html(
+                    stable_html_table(localized_frame(pd.DataFrame([failure.__dict__ for failure in result.failures])))
                 )
         except Exception as exc:
             finished_at = pd.Timestamp.now(tz="Asia/Shanghai").isoformat()
