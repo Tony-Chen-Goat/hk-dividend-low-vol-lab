@@ -17,7 +17,8 @@ from app.experiment_comparison import (
 from app.experiment_store import approve_experiment, experiment_display_name, export_experiment_bundle, get_experiment, list_experiments
 from app.cloud_ui import persist_cloud_database
 from app.page_runtime import setup_page
-from app.ui import empty_state, render_html
+from app.html_render import render_html
+from app.ui import empty_state
 
 
 setup_page("实验档案与对比", "🗂️")

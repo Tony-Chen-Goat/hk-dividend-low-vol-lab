@@ -7,8 +7,9 @@ from app.config import DEFAULT_DB_PATH
 from app.database import latest_feature_summary, table_counts
 from app.experiment_store import list_experiments
 from app.cloud_ui import cloud_storage_notice
+from app.html_render import render_html
 from app.page_runtime import setup_page
-from app.ui import empty_state, render_html, yahoo_notice
+from app.ui import empty_state, yahoo_notice
 
 
 quality = setup_page("港股红利低波实验室", "🧭")

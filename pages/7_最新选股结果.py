@@ -13,7 +13,8 @@ from app.portfolio import build_enhanced_portfolio
 from app.research_pipeline import load_feature_panel
 from app.stability import read_recent_stock_prices, resolve_stock_data_cutoff
 from app.page_runtime import setup_page
-from app.ui import empty_state, render_html
+from app.html_render import render_html
+from app.ui import empty_state
 
 
 ENTRY_LABELS = {

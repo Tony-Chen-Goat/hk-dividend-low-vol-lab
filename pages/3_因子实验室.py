@@ -20,7 +20,8 @@ from app.research_pipeline import available_experiments, compute_and_store_featu
 from app.scoring import validate_weights
 from app.cloud_ui import persist_cloud_database
 from app.page_runtime import setup_page
-from app.ui import empty_state, render_html
+from app.html_render import render_html
+from app.ui import empty_state
 
 
 def _correlation_color(value: float) -> tuple[str, str]:

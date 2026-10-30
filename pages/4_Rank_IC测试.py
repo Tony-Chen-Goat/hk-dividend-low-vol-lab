@@ -12,7 +12,8 @@ from app.rank_ic import compare_factor_ics, ic_summary, monthly_rank_ic
 from app.research_pipeline import available_experiments, load_feature_panel
 from app.cloud_ui import persist_cloud_database
 from app.page_runtime import setup_page
-from app.ui import empty_state, render_html
+from app.html_render import render_html
+from app.ui import empty_state
 
 
 setup_page("Rank IC 测试", "📐")

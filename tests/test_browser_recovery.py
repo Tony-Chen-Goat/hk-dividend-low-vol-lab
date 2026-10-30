@@ -13,7 +13,7 @@ def test_sidebar_exposes_fresh_session_recovery_link() -> None:
 
 def test_stale_component_chunks_trigger_one_bounded_cache_bust() -> None:
     root = Path(__file__).resolve().parents[1]
-    source = (root / "app" / "ui.py").read_text(encoding="utf-8")
+    source = (root / "app" / "html_render.py").read_text(encoding="utf-8")
 
     assert "COMPONENT_RECOVERY_SCRIPT" in source
     assert "Failed to fetch dynamically imported module" in source
@@ -28,6 +28,6 @@ def test_custom_html_uses_dedicated_renderer_instead_of_markdown() -> None:
     root = Path(__file__).resolve().parents[1]
     application_files = [root / "streamlit_app.py", *sorted((root / "pages").glob("*.py"))]
 
-    assert "def render_html" in (root / "app" / "ui.py").read_text(encoding="utf-8")
+    assert "def render_html" in (root / "app" / "html_render.py").read_text(encoding="utf-8")
     for path in application_files:
         assert "unsafe_allow_html=True" not in path.read_text(encoding="utf-8"), path.name

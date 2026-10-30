@@ -13,7 +13,8 @@ from app.database import connect, export_table_csv, load_setting, read_table, sa
 from app.display import localized_frame, stable_html_table
 from app.cloud_ui import cloud_storage_notice, persist_cloud_database
 from app.page_runtime import setup_page
-from app.ui import market_update_progress_html, render_html, yahoo_notice
+from app.html_render import render_html
+from app.ui import market_update_progress_html, yahoo_notice
 from app.stability import universe_fingerprint
 from app.universe import validate_universe_csv
 from app.yahoo_provider import fetch_benchmark_prices, fetch_yahoo_data
